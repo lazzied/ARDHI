@@ -1,0 +1,8 @@
+*.log
+*.tif
+
+__pycache__/
+soilgrid_data/
+venv/
+
+dimension_json/

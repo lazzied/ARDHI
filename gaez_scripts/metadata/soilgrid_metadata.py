@@ -1,0 +1,146 @@
+SOILGRIDS_ATTRIBUTES = {
+    "bdod": {
+        "caption": "Bulk density",
+        "description": "Bulk density of the fine earth fraction. Indicates soil compaction — higher values mean denser, more compacted soil with less pore space. Affects root penetration, water infiltration, and aeration.",
+        "unit": "cg/cm³",
+        "unit_raw": "cg/cm³",
+        "scale_factor": 100.0,
+        "unit_converted": "kg/dm³",
+    },
+    "cec": {
+        "caption": "Cation exchange capacity",
+        "description": "Cation exchange capacity at pH 7. Measures the soil's ability to hold and release positively charged nutrients (Ca²⁺, Mg²⁺, K⁺, Na⁺). Higher CEC means better nutrient retention. Directly feeds into GAEZ SQ2 (nutrient retention capacity).",
+        "unit": "mmol(c)/kg",
+        "unit_raw": "mmol(c)/kg",
+    },
+    "cfvo": {
+        "caption": "Coarse fragments",
+        "description": "Volumetric fraction of coarse fragments (>2mm). High values reduce the effective soil volume available for root growth and water storage. Affects GAEZ SQ3 (rooting conditions).",
+        "unit": "cm³/dm³",
+        "unit_raw": "cm³/dm³",
+        "scale_factor": 10.0,
+        "unit_converted": "%",
+    },
+    "clay": {
+        "caption": "Clay content",
+        "description": "Mass fraction of clay particles (<0.002mm) in the fine earth fraction. Clay determines water holding capacity, nutrient retention, shrink-swell behavior, and workability. Feeds into GAEZ SQ1 (nutrient availability), SQ2 (nutrient retention), and SQ7 (workability).",
+        "unit": "g/kg",
+        "unit_raw": "g/kg",
+        "scale_factor": 10.0,
+        "unit_converted": "%",
+    },
+    "nitrogen": {
+        "caption": "Total nitrogen",
+        "description": "Total nitrogen content. Essential macronutrient for plant growth. Combined with organic carbon, indicates soil fertility and mineralization potential.",
+        "unit": "cg/kg",
+        "unit_raw": "cg/kg",
+        "scale_factor": 100.0,
+        "unit_converted": "g/kg",
+    },
+    "ocd": {
+        "caption": "Organic carbon density",
+        "description": "Organic carbon density. Mass of organic carbon per unit area at a given depth. Used for carbon stock accounting rather than direct soil quality assessment.",
+        "unit": "hg/m³",
+        "unit_raw": "hg/m³",
+        "scale_factor": 10.0,
+        "unit_converted": "kg/m³",
+    },
+    "ocs": {
+        "caption": "Organic carbon stock",
+        "description": "Soil organic carbon stock for the specified depth interval. Total organic carbon mass per unit area. Important for carbon accounting and climate reporting.",
+        "unit": "t/ha",
+        "unit_raw": "t/ha",
+    },
+    "phh2o": {
+        "caption": "pH (water)",
+        "description": "Soil pH measured in water. Controls nutrient availability, microbial activity, and aluminum toxicity. Directly feeds into GAEZ SQ1 (nutrient availability). Most crops prefer pH 5.5-7.5; calcareous soils above 8.0 lock out phosphorus and micronutrients.",
+        "unit": "pH×10",
+        "unit_raw": "pH×10",
+        "scale_factor": 10.0,
+        "unit_converted": "pH",
+    },
+    "sand": {
+        "caption": "Sand content",
+        "description": "Mass fraction of sand particles (0.05-2mm) in the fine earth fraction. Sandy soils drain quickly, hold fewer nutrients, and warm faster. Combined with clay and silt determines texture class.",
+        "unit": "g/kg",
+        "unit_raw": "g/kg",
+        "scale_factor": 10.0,
+        "unit_converted": "%",
+    },
+    "silt": {
+        "caption": "Silt content",
+        "description": "Mass fraction of silt particles (0.002-0.05mm) in the fine earth fraction. Silt-rich soils hold water well but are prone to crusting and erosion. Combined with clay and sand determines texture class.",
+        "unit": "g/kg",
+        "unit_raw": "g/kg",
+        "scale_factor": 10.0,
+        "unit_converted": "%",
+    },
+    "soc": {
+        "caption": "Soil organic carbon",
+        "description": "Soil organic carbon content of the fine earth fraction. Central indicator of soil health — drives nutrient cycling, water retention, soil structure, and biological activity. Directly feeds into GAEZ SQ1 (nutrient availability) and SQ2 (nutrient retention).",
+        "unit": "dg/kg",
+        "unit_raw": "dg/kg",
+        "scale_factor": 10.0,
+        "unit_converted": "g/kg",
+    },
+    "wv0010": {
+        "caption": "Water content at 10 kPa",
+        "description": "Volumetric water content at 10 kPa suction (field capacity for coarse soils). Represents the upper limit of plant-available water after free drainage. Combined with wv1500, defines the available water capacity.",
+        "unit": "0.1 v%",
+        "unit_raw": "0.1 v%",
+        "scale_factor": 10.0,
+        "unit_converted": "v%",
+    },
+    "wv0033": {
+        "caption": "Water content at 33 kPa",
+        "description": "Volumetric water content at 33 kPa suction (field capacity for fine-textured soils). The standard field capacity reference. Water held above this tension drains freely; water held below is available to plants until wilting point.",
+        "unit": "0.1 v%",
+        "unit_raw": "0.1 v%",
+        "scale_factor": 10.0,
+        "unit_converted": "v%",
+    },
+    "wv1500": {
+        "caption": "Water content at 1500 kPa",
+        "description": "Volumetric water content at 1500 kPa suction (permanent wilting point). Below this moisture level, plants cannot extract water from soil. The difference between field capacity (wv0033) and wilting point (wv1500) defines plant-available water capacity.",
+        "unit": "0.1 v%",
+        "unit_raw": "0.1 v%",
+        "scale_factor": 10.0,
+        "unit_converted": "v%",
+    },
+}
+
+SOILGRIDS_DEPTHS = {
+    "0-5cm":    {"top_cm": 0,   "bottom_cm": 5,   "label": "0–5 cm"},
+    "5-15cm":   {"top_cm": 5,   "bottom_cm": 15,  "label": "5–15 cm"},
+    "15-30cm":  {"top_cm": 15,  "bottom_cm": 30,  "label": "15–30 cm"},
+    "30-60cm":  {"top_cm": 30,  "bottom_cm": 60,  "label": "30–60 cm"},
+    "60-100cm": {"top_cm": 60,  "bottom_cm": 100, "label": "60–100 cm"},
+    "100-200cm":{"top_cm": 100, "bottom_cm": 200, "label": "100–200 cm"},
+}
+
+SOILGRIDS_QUANTILES = {
+    "Q0.05": {"caption": "5th percentile",  "description": "Lower bound of 90% prediction interval."},
+    "Q0.50": {"caption": "Median",          "description": "Central prediction (recommended default)."},
+    "Q0.95": {"caption": "95th percentile", "description": "Upper bound of 90% prediction interval."},
+    "mean":  {"caption": "Mean",            "description": "Mean prediction across ensemble models."},
+}
+
+# Map SoilGrids attributes to the GAEZ SQ factors they feed into.
+# Used by the fc4 recalculation pipeline when substituting SoilGrids
+# values for HWSD defaults.
+SOILGRIDS_TO_SQ_MAPPING = {
+    "phh2o":    ["SQ1"],
+    "soc":      ["SQ1", "SQ2"],
+    "cec":      ["SQ2"],
+    "clay":     ["SQ1", "SQ2", "SQ7"],
+    "sand":     ["SQ1", "SQ7"],
+    "silt":     ["SQ7"],
+    "cfvo":     ["SQ3"],
+    "bdod":     ["SQ3", "SQ4"],
+    "nitrogen": ["SQ1"],
+    "wv0033":   [],
+    "wv0010":   [],
+    "wv1500":   [],
+    "ocd":      [],
+    "ocs":      [],
+}
