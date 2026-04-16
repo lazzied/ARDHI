@@ -31,10 +31,6 @@ log = logging.getLogger(__name__)
 
 
 def download_one(url: str) -> tuple[str, str | None, str | None]:
-    """
-    Download a single file with retries.
-    Returns (url, local_path, error).
-    """
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             path = Downloader.download_url(url, RAW_FOLDER)
@@ -43,6 +39,8 @@ def download_one(url: str) -> tuple[str, str | None, str | None]:
             return (url, path, None)
         except Exception as e:
             if attempt < MAX_RETRIES:
+                log.warning(f"Attempt {attempt}/{MAX_RETRIES} failed for "
+                           f"{Downloader.get_filename(url)}: {e} — retrying in {RETRY_DELAY}s")
                 time.sleep(RETRY_DELAY)
             else:
                 return (url, None, str(e))
@@ -116,34 +114,40 @@ def stage_clip(downloaded: dict[str, str]) -> dict[str, str]:
 
 
 def stage_insert(clipped: dict[str, str]) -> int:
-    """Parse, enrich, validate, and insert all clipped layers."""
     log.info(f"Stage 3: Inserting {len(clipped)} layers to DB")
-    conn = get_connection(DB_PATH)
     inserted = 0
     warnings = 0
     errors = 0
 
-    try:
-        for url, clipped_path in clipped.items():
-            try:
-                layer = from_url(url, source="gaez")
-                layer.local_path = clipped_path
+    for url, clipped_path in clipped.items():
+        conn = None
+        try:
+            layer = from_url(url, source="gaez")
+            layer.local_path = clipped_path
 
-                issues = layer.validate()
-                if issues:
-                    log.warning(f"Validation: {layer.filename} — {issues}")
-                    warnings += 1
+            issues = layer.validate()
+            if issues:
+                log.warning(f"Validation: {layer.filename} — {issues}")
+                warnings += 1
 
-                insert_layer(conn, layer)
-                inserted += 1
+            conn = get_connection(DB_PATH)   # ← open fresh per insert
+            insert_layer(conn, layer)
+            conn.commit()
+            inserted += 1
 
-            except Exception as e:
-                log.error(f"Insert failed: {os.path.basename(clipped_path)} — {e}")
-                errors += 1
+        except sqlite3.OperationalError as e:
+            log.error(f"Insert failed: {os.path.basename(clipped_path)} — {e}")
+            if conn:
+                conn.rollback()
+            errors += 1
 
-        conn.commit()
-    finally:
-        close_connection(conn)
+        except Exception as e:
+            log.error(f"Insert failed: {os.path.basename(clipped_path)} — {e}")
+            errors += 1
+
+        finally:
+            if conn:
+                close_connection(conn)       # ← close immediately, no lingering lock
 
     log.info(f"Stage 3 done: {inserted} inserted, {warnings} warnings, {errors} errors")
     return inserted

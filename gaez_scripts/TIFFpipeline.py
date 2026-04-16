@@ -1,13 +1,9 @@
-import time
-import urllib.request
 import os
 import numpy as np
 import rasterio
 from rasterio.mask import mask
 import geopandas as gpd
 import requests
-from ardhi_db import close_connection, get_connection, insert_layer
-from gaez_scripts.tiff_layer import from_url, TiffLayer
 import base64
 import google_crc32c
 
@@ -33,7 +29,7 @@ class Downloader:
 
         print(f"Downloading {filename}...")
         
-        with requests.get(url, stream=True) as r:
+        with requests.get(url, stream=True, timeout=(10, 60)) as r:
             if r.status_code != 200:
                 raise Exception(f"Download failed with status code {r.status_code}")
 
@@ -104,14 +100,24 @@ class RasterProcessor:
         return out_image[0], out_transform, nodata, gdf
 
     @staticmethod
-    def save(data: RasterData, output_path: str, nodata: float = -9999) -> None:
+    def save(data: RasterData, output_path: str, nodata: float = None) -> None:
+        # Pick a nodata value compatible with the raster's dtype
+        dtype = data.img.dtype
+        if nodata is None:
+            if np.issubdtype(dtype, np.unsignedinteger):
+                nodata = np.iinfo(dtype).max        # e.g. 255 for uint8, 65535 for uint16
+            elif np.issubdtype(dtype, np.signedinteger):
+                nodata = np.iinfo(dtype).min        # e.g. -128 for int8, -9999 fits int16+
+            else:
+                nodata = -9999.0                    # float types
+
         with rasterio.open(
             output_path, "w",
             driver="GTiff",
             height=data.img.shape[0],
             width=data.img.shape[1],
             count=1,
-            dtype=data.img.dtype,
+            dtype=dtype,
             crs=data.gdf.crs,
             transform=data.transform,
             nodata=nodata,
@@ -122,7 +128,7 @@ class RasterProcessor:
     def mask_nodata(img: np.ndarray, nodata) -> np.ma.MaskedArray:
         if nodata is not None:
             return np.ma.masked_where(img == nodata, img)
-        return img
+        return np.ma.array(img, mask=False)  # ← wrap as masked array with no mask
 
     def process(self, tiff_path: str, shapefile_path: str) -> RasterData:
         gdf = self.load_shapefile(shapefile_path)
@@ -130,8 +136,10 @@ class RasterProcessor:
         img = self.mask_nodata(img, nodata)
         return RasterData(img=img, transform=transform, gdf=gdf)
 
-
+"""
 if __name__ == "__main__":
+    from ardhi_db import close_connection, get_connection, insert_layer
+
     SHAPEFILE     = "gaez_data/tunisia_Tunisia_Country_Boundary/tunisia_Tunisia_Country_Boundary.shp"
     OUTPUT_FOLDER = "D:/ARDHI/TIFF"
     TIFF_URLS     = "gaez_scripts/test_tiff_urls.txt"
@@ -195,3 +203,4 @@ if __name__ == "__main__":
     finally:
         close_connection(conn)
         print("DB connection closed.")
+"""

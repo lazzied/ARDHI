@@ -4,7 +4,7 @@ from gaez_scripts.tiff_layer import TiffLayer, GaezTiffLayer, SoilgridsTiffLayer
 
 
 def get_connection(db_path: str = "ardhi.db") -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)  # increase timeout to reduce "database is locked" errors
     conn.row_factory = sqlite3.Row  # lets you access columns by name
     return conn
 
