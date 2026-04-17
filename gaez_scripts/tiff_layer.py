@@ -177,9 +177,12 @@ def _parse_gaez(url: str) -> GaezTiffLayer:
     if map_code.startswith("RES01") and n == 5:
         return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
                              period=dims[2], climate_model=dims[3], ssp=dims[4])
-    if map_code in ("SQX", "SQ-IDX") and n == 4:
+    if map_code == "SQ-IDX" and n == 3:
         return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
-                             sq_factor=dims[2], management=dims[3])
+                         management=dims[2])
+    if map_code == "SQX" and n == 4:
+        return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
+                            sq_factor=dims[2], management=dims[3])
     if map_code.startswith("RES06") and n == 4:
         return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
                              crop_code=dims[2], water_supply=dims[3])

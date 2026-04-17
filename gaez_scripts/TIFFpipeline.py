@@ -1,4 +1,5 @@
 import os
+import time
 import numpy as np
 import rasterio
 from rasterio.mask import mask
@@ -6,6 +7,8 @@ import geopandas as gpd
 import requests
 import base64
 import google_crc32c
+
+from gaez_scripts.tiff_layer import TiffLayer, from_url
 
 class Downloader:
     @staticmethod
@@ -136,13 +139,12 @@ class RasterProcessor:
         img = self.mask_nodata(img, nodata)
         return RasterData(img=img, transform=transform, gdf=gdf)
 
-"""
 if __name__ == "__main__":
     from ardhi_db import close_connection, get_connection, insert_layer
 
     SHAPEFILE     = "gaez_data/tunisia_Tunisia_Country_Boundary/tunisia_Tunisia_Country_Boundary.shp"
-    OUTPUT_FOLDER = "D:/ARDHI/TIFF"
-    TIFF_URLS     = "gaez_scripts/test_tiff_urls.txt"
+    OUTPUT_FOLDER = "D:/ARDHI/TIFF/clipped"
+    TIFF_URLS     = "failed_urls.txt"
     MAX_RETRIES   = 3
     RETRY_DELAY   = 5
 
@@ -156,6 +158,27 @@ if __name__ == "__main__":
                 if not url:
                     continue
 
+                filename = Downloader.get_filename(
+                    Downloader.gs_to_https(url)
+                )
+                existing_path = os.path.join(OUTPUT_FOLDER, filename)
+
+                # If already clipped on disk, skip download+clip, just insert
+                if os.path.exists(existing_path):
+                    print(f"⊘ Already exists: {filename} — skipping to insert")
+                    try:
+                        layer = from_url(url, source="gaez")
+                        layer.local_path = existing_path
+                        issues = layer.validate()
+                        if issues:
+                            print(f"  ⚠ Validation warnings: {issues}")
+                        insert_layer(conn, layer)
+                        print(f"✓ Inserted: {filename}")
+                    except Exception as e:
+                        print(f"✗ Insert failed for {filename}: {e}")
+                    continue
+
+                # Otherwise: download, clip, insert
                 for attempt in range(1, MAX_RETRIES + 1):
                     try:
                         path = Downloader.download_url(url, OUTPUT_FOLDER)
@@ -165,14 +188,14 @@ if __name__ == "__main__":
                         raster_data = raster_processor.process(path, SHAPEFILE)
                         raster_processor.save(raster_data, path)
 
-                        layer: TiffLayer = from_url(url, source="gaez")
+                        layer = from_url(url, source="gaez")
                         layer.local_path = path
                         issues = layer.validate()
                         if issues:
                             print(f"  ⚠ Validation warnings for {layer.filename}: {issues}")
                         else:
                             print(f"✓ Layer created: {layer.filename}, now inserting to DB...")
-                        try:   
+                        try:
                             insert_layer(conn, layer)
                         except Exception as e:
                             print(f"✗ DB insertion error for {layer.filename}: {e}")
@@ -203,4 +226,3 @@ if __name__ == "__main__":
     finally:
         close_connection(conn)
         print("DB connection closed.")
-"""

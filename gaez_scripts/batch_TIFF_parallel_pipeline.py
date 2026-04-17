@@ -14,7 +14,7 @@ from gaez_scripts.TIFFpipeline import Downloader, RasterProcessor
 SHAPEFILE       = "gaez_data/tunisia_Tunisia_Country_Boundary/tunisia_Tunisia_Country_Boundary.shp"
 RAW_FOLDER      = "D:/ARDHI/TIFF/raw"         # downloads land here
 CLIPPED_FOLDER  = "D:/ARDHI/TIFF/clipped"      # clipped files go here
-TIFF_URLS       = "gaez_scripts/test_tiff_urls.txt"
+TIFF_URLS       = "gaez_data/links/filtered_tiff_files.txt"
 DB_PATH         = "ardhi.db"
 
 DOWNLOAD_WORKERS = 12      # threads — tune to your bandwidth
