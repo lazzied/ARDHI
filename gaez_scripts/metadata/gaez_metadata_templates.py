@@ -100,7 +100,38 @@ METADATA_TEMPLATES = {
     },
 
     # ── Yield ────────────────────────────────────────────────────────
-
+    "RES05-YLX30AS": {
+        "title": "Agro-ecological attainable yield, output density",
+        "description": "Agro-ecological attainable yield results represented as output density (potential production divided by total grid cell area), at approximately 1 km resolution. Accounts for rain-fed and irrigated conditions, and two levels of input management (high and low). Results cover more than 70 major crops including traditional and adapted crops in alignment with VACS, and all soil groups identified in HWSD v2. Results for irrigated cultivation are limited to grid cells where existing cropland is indicated in the GAEZ v5 land cover inventory for 2020.",
+        "unit": "kg(DW)/ha",
+        "nodata": -9,
+        "scale_factor": 1.0,
+        "resolution": "1km",
+        "theme": "Suitability and Attainable Yield",
+        "sub_theme": "Agro-ecological Attainable Yield",
+        "variable_name": "Output density (potential production divided by total grid cell area)",
+        "dimension_profile": "historical+future",
+        "category": "yield",
+        "publication_date": "2025-04-07",
+        "note": "Dry weight. Sugar beet/cane in kg sugar/ha, oil palm in kg oil/ha, cotton in kg lint/ha. Apply conversion factor for fresh weight comparison.",
+    },
+    "RES05-YXX": {
+        "title": "Agro-ecological attainable yield, average of best occurring suitability class",
+        "description": "Agro-ecological attainable yield results represented as the average attainable yield of the best occurring suitability class in a grid cell, at approximately 10 km resolution. Accounts for rain-fed and irrigated conditions, and two levels of input management (high and low). Results cover more than 70 major crops including traditional and adapted crops in alignment with VACS, and all soil groups identified in HWSD v2.",
+        "unit": "kg(DW)/ha",
+        "nodata": -9,
+        "scale_factor": 1.0,
+        "resolution": "10km",
+        "theme": "Suitability and Attainable Yield",
+        "sub_theme": "Agro-ecological Attainable Yield",
+        "variable_name": "Average attainable yield of best occurring suitability class in grid cell",
+        "dimension_profile": "historical+future",
+        "category": "yield",
+        "publication_date": "2025-03-25",
+        "note": "Dry weight. Sugar beet/cane in kg sugar/ha, oil palm in kg oil/ha, cotton in kg lint/ha. Apply conversion factor for fresh weight comparison.",
+    },
+    
+"""
     "RES05-YCX30AS": {
         "title": "Agro-ecological attainable yield, current cropland",
         "description": "Agro-ecological attainable yield results represent average attainable yield values for current cropland as indicated in the GAEZ v5 land cover inventory for 2020. Estimations account for rain-fed and irrigated conditions, and two levels of input management (high and low). Results cover more than 70 major crops including traditional and adapted crops in alignment with VACS, and all soil groups identified in HWSD v2. Yields represent agro-ecological potential after applying all constraint factors (thermal, moisture, agro-climatic, soil, terrain).",
@@ -116,6 +147,7 @@ METADATA_TEMPLATES = {
         "publication_date": "2025-04-07",
         "note": "Dry weight. Sugar beet/cane in kg sugar/ha, oil palm in kg oil/ha, cotton in kg lint/ha. Apply conversion factor for fresh weight comparison.",
     },
+"""
     "RES02-YLD": {
         "title": "Agro-climatic potential yield",
         "description": "Agro-climatic potential yield results at approximately 10 km resolution for more than 70 major crops including traditional and adapted crops in alignment with VACS. Accounts for rain-fed and irrigated conditions, and two levels of input management (high and low). Represents yield potential based on climate factors only, before applying soil and terrain constraints. Modeled results for crop sub-types are available only via download from Google Cloud Storage and are not published on the GAEZ v5 platform.",

@@ -6,5 +6,6 @@ soilgrid_data/
 venv/
 
 dimension_json/
+hwsd_data/
 
 *.db

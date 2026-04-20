@@ -144,7 +144,7 @@ if __name__ == "__main__":
 
     SHAPEFILE     = "gaez_data/tunisia_Tunisia_Country_Boundary/tunisia_Tunisia_Country_Boundary.shp"
     OUTPUT_FOLDER = "D:/ARDHI/TIFF/clipped"
-    TIFF_URLS     = "failed_urls.txt"
+    TIFF_URLS     = "gaez_data/links/missing_tiff_files.txt"
     MAX_RETRIES   = 3
     RETRY_DELAY   = 5
 
@@ -167,7 +167,7 @@ if __name__ == "__main__":
                 if os.path.exists(existing_path):
                     print(f"⊘ Already exists: {filename} — skipping to insert")
                     try:
-                        layer = from_url(url, source="gaez")
+                        layer = from_url(url)
                         layer.local_path = existing_path
                         issues = layer.validate()
                         if issues:
@@ -188,7 +188,7 @@ if __name__ == "__main__":
                         raster_data = raster_processor.process(path, SHAPEFILE)
                         raster_processor.save(raster_data, path)
 
-                        layer = from_url(url, source="gaez")
+                        layer = from_url(url)
                         layer.local_path = path
                         issues = layer.validate()
                         if issues:

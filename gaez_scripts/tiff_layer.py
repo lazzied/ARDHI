@@ -6,9 +6,6 @@ GAEZ URL patterns:
   D — SQX/SQ-IDX (4 dims):   GAEZ-V5.{map_code}.{sq_factor}.{management}.tif
   E — RES01 (5 dims):        GAEZ-V5.{map_code}.{period}.{climate}.{ssp}.tif
   F — RES02/RES05 (7 dims):  GAEZ-V5.{map_code}.{period}.{climate}.{ssp}.{crop}.{input_level}.tif
-
-SoilGrids FILENAME   pattern:
-  G — soilgrids (3 parts):   {attribute}_{depth}_{quantile}.tif
 """
 
 from __future__ import annotations
@@ -34,12 +31,6 @@ from gaez_scripts.metadata.gaez_metadata_templates import (
     LAND_COVER_CLASSES,
     LICENSE,
 )
-from gaez_scripts.metadata.soilgrid_metadata import (
-    SOILGRIDS_ATTRIBUTES,
-    SOILGRIDS_DEPTHS,
-    SOILGRIDS_QUANTILES,
-    SOILGRIDS_TO_SQ_MAPPING,
-)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -48,15 +39,65 @@ from gaez_scripts.metadata.soilgrid_metadata import (
 
 @dataclass
 class TiffLayer:
-    """One tiff layer (GAEZ or SoilGrids) with parsed dimensions and resolved metadata."""
-    map_code: str
-    source: str
-    local_path: str =""
+    """One GAEZ tiff layer with parsed dimensions and resolved metadata."""
+    url: str = ""
+    map_code: str = ""
+    source: str = "gaez"
+    local_path: str = ""
+
+    # GAEZ dimensions (None when not applicable)
+    crop_code: Optional[str] = None
+    period: Optional[str] = None
+    climate_model: Optional[str] = None
+    ssp: Optional[str] = None
+    input_level: Optional[str] = None
+    water_content: Optional[str] = None
+    water_supply: Optional[str] = None
+    management: Optional[str] = None
+    sq_factor: Optional[str] = None
+    lc_class: Optional[str] = None
 
     # Resolved metadata (populated by enrich())
     metadata: dict = field(default_factory=dict)
 
-    
+    @property
+    def family(self) -> str:
+        if self.map_code.startswith("RES01"):
+            return "RES01"
+        if self.map_code.startswith("RES02"):
+            return "RES02"
+        if self.map_code.startswith("RES05"):
+            return "RES05"
+        if self.map_code.startswith("RES06"):
+            return "RES06"
+        if self.map_code in ("SQX", "SQ-IDX"):
+            return "soil_quality"
+        if self.map_code == "LR-LCC":
+            return "land_cover"
+        return "static"
+
+    @property
+    def filename(self) -> str:
+        return self.url.rsplit("/", 1)[-1]
+
+    def validate(self) -> list[str]:
+        """Check that dimension codes are recognized."""
+        issues = []
+        if self.map_code not in METADATA_TEMPLATES and self.map_code != "LR-LCC":
+            issues.append(f"Unknown map_code: {self.map_code}")
+        if self.period and self.period not in PERIODS:
+            issues.append(f"Unknown period: {self.period}")
+        if self.ssp and self.ssp not in SSP_SCENARIOS:
+            issues.append(f"Unknown SSP: {self.ssp}")
+        if self.climate_model and self.climate_model not in CLIMATE_MODELS:
+            issues.append(f"Unknown climate model: {self.climate_model}")
+        if self.input_level and self.input_level not in INPUT_LEVELS:
+            issues.append(f"Unknown input level: {self.input_level}")
+        if self.period and self.period.startswith("FP") and self.ssp == "HIST":
+            issues.append(f"Future period {self.period} with HIST SSP")
+        if self.period and self.period.startswith("HP") and self.ssp and self.ssp != "HIST":
+            issues.append(f"Historical period {self.period} with {self.ssp}")
+        return issues
 
     def to_dict(self) -> dict:
         raw = asdict(self)
@@ -71,164 +112,44 @@ class TiffLayer:
     def load_json(cls, path: str) -> TiffLayer:
         with open(path) as f:
             data = json.load(f)
-        source = data.get("source")
-        if source == "soilgrids":
-            return SoilgridsTiffLayer(**data)
-        elif source == "gaez":
-            return GaezTiffLayer(**data)
-        else:
-            raise ValueError(f"Unknown source {source!r} in {path!r}")
+        return cls(**data)
 
-    
-
-@dataclass
-class GaezTiffLayer(TiffLayer):
-    url: str = "" # this is the url where we download the tiff from
-    
-    # GAEZ dimensions (None when not applicable)
-    crop_code: Optional[str] = None
-    period: Optional[str] = None
-    climate_model: Optional[str] = None
-    ssp: Optional[str] = None
-    input_level: Optional[str] = None
-    water_content: Optional[str] = None
-    water_supply: Optional[str] = None
-    management: Optional[str] = None
-    sq_factor: Optional[str] = None
-    lc_class: Optional[str] = None
-    
-    @property
-    def family(self) -> str:
-        if self.source == "soilgrids":
-            return "soilgrids"
-        if self.map_code.startswith("RES01"):
-            return "RES01"
-        if self.map_code.startswith("RES02"):
-            return "RES02"
-        if self.map_code.startswith("RES05"):
-            return "RES05"
-        if self.map_code.startswith("RES06"):
-            return "RES06"
-        if self.map_code in ("SQX", "SQ-IDX"):
-            return "soil_quality"
-        if self.map_code == "LR-LCC":
-            return "land_cover"
-        return "static"
-    
-    @property
-    def filename(self) -> str:
-        return self.url.rsplit("/", 1)[-1]
-    
-    def validate(self) -> list[str]:
-        """Check that dimension codes are recognized."""
-        issues = []
-        if self.source == "gaez":
-            if self.map_code not in METADATA_TEMPLATES and self.map_code != "LR-LCC":
-                issues.append(f"Unknown map_code: {self.map_code}")
-            if self.period and self.period not in PERIODS:
-                issues.append(f"Unknown period: {self.period}")
-            if self.ssp and self.ssp not in SSP_SCENARIOS:
-                issues.append(f"Unknown SSP: {self.ssp}")
-            if self.climate_model and self.climate_model not in CLIMATE_MODELS:
-                issues.append(f"Unknown climate model: {self.climate_model}")
-            if self.input_level and self.input_level not in INPUT_LEVELS:
-                issues.append(f"Unknown input level: {self.input_level}")
-            if self.period and self.period.startswith("FP") and self.ssp == "HIST":
-                issues.append(f"Future period {self.period} with HIST SSP")
-            if self.period and self.period.startswith("HP") and self.ssp and self.ssp != "HIST":
-                issues.append(f"Historical period {self.period} with {self.ssp}")
-        return issues
-    
-@dataclass
-class SoilgridsTiffLayer(TiffLayer):
-    filename: str = "" # this is the filename in the format {attribute}_{depth}_{quantile}.tif / because we already downloaded it and don't have the url anymore
-    # SoilGrids dimensions (None for GAEZ)
-    attribute: Optional[str] = None
-    depth: Optional[str] = None
-    quantile: Optional[str] = None
-    
-    
-    def validate(self) -> list[str]:
-        issues = []
-        if self.attribute and self.attribute not in SOILGRIDS_ATTRIBUTES:
-            issues.append(f"Unknown SoilGrids attribute: {self.attribute}")
-        if self.depth and self.depth not in SOILGRIDS_DEPTHS:
-            issues.append(f"Unknown SoilGrids depth: {self.depth}")
-        if self.quantile and self.quantile not in SOILGRIDS_QUANTILES:
-            issues.append(f"Unknown SoilGrids quantile: {self.quantile}")
-        return issues
-    
-    
 
 # ──────────────────────────────────────────────────────────────────────
-# Parsers
+# Parser
 # ──────────────────────────────────────────────────────────────────────
 
-def _parse_gaez(url: str) -> GaezTiffLayer:
+def parse_url(url: str) -> TiffLayer:
+    """Parse a GAEZ tiff URL into a TiffLayer."""
     filename = url.rsplit("/", 1)[-1]
     dims = filename.replace(".tif", "").split(".")
     map_code = dims[1]
     n = len(dims)
 
     if map_code.startswith(("RES02", "RES05")) and n == 7:
-        return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
-                             period=dims[2], climate_model=dims[3], ssp=dims[4],
-                             crop_code=dims[5], input_level=dims[6])
+        return TiffLayer(url=url, map_code=map_code,
+                         period=dims[2], climate_model=dims[3], ssp=dims[4],
+                         crop_code=dims[5], input_level=dims[6])
     if map_code.startswith("RES01") and n == 5:
-        return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
-                             period=dims[2], climate_model=dims[3], ssp=dims[4])
+        return TiffLayer(url=url, map_code=map_code,
+                         period=dims[2], climate_model=dims[3], ssp=dims[4])
     if map_code == "SQ-IDX" and n == 3:
-        return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
-                         management=dims[2])
+        return TiffLayer(url=url, map_code=map_code, management=dims[2])
     if map_code == "SQX" and n == 4:
-        return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
-                            sq_factor=dims[2], management=dims[3])
+        return TiffLayer(url=url, map_code=map_code,
+                         sq_factor=dims[2], management=dims[3])
     if map_code.startswith("RES06") and n == 4:
-        return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
-                             crop_code=dims[2], water_supply=dims[3])
+        return TiffLayer(url=url, map_code=map_code,
+                         crop_code=dims[2], water_supply=dims[3])
     if map_code == "LR-LCC" and n == 3:
-        return GaezTiffLayer(url=url, source="gaez", map_code=map_code,
-                             lc_class=dims[2])
+        return TiffLayer(url=url, map_code=map_code, lc_class=dims[2])
     if n == 2:
-        # Pattern A — static layer, no extra dims, this is valid
-        return GaezTiffLayer(url=url, source="gaez", map_code=map_code)
+        return TiffLayer(url=url, map_code=map_code)
 
     raise ValueError(
         f"Unrecognized GAEZ filename pattern: {filename!r} "
         f"(map_code={map_code!r}, {n} dims)"
     )
-
-
-def _parse_soilgrids(filename: str) -> SoilgridsTiffLayer:
-    name = filename.replace(".tif", "")
-    parts = name.split("_")
-    if len(parts) != 3:
-        raise ValueError(
-            f"SoilGrids filename must have exactly 3 underscore-separated parts "
-            f"(attribute_depth_quantile.tif), got {len(parts)}: {filename!r}"
-        )
-    attr, dep, quant = parts
-    return SoilgridsTiffLayer(
-        filename=filename,
-        source="soilgrids",
-        map_code=attr.upper(),
-        attribute=attr,
-        depth=dep,
-        quantile=quant,
-    )
-
-
-def parse_url(url: str, source: str ) -> TiffLayer:
-    """
-    Parse a tiff URL into a TiffLayer.
-
-    Args:
-        url: Full GCS/file URL.
-        source: "gaez" or "soilgrids". Auto-detected if URL contains "soilgrids".
-    """
-    if source == "soilgrids" or "soilgrids" in url.lower():
-        return _parse_soilgrids(url)
-    return _parse_gaez(url)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -264,7 +185,8 @@ def _resolve_crop(code: str, family: str) -> Optional[dict]:
     return {"key": code, "caption": None, "source": source, "unresolved": True}
 
 
-def _enrich_gaez(layer: TiffLayer) -> None:
+def enrich(layer: TiffLayer) -> TiffLayer:
+    """Resolve all dimension codes to full metadata."""
     meta = {}
 
     template = METADATA_TEMPLATES.get(layer.map_code)
@@ -332,67 +254,6 @@ def _enrich_gaez(layer: TiffLayer) -> None:
         meta["lc_class"] = {"code": layer.lc_class, **(lc if lc else {"unresolved": True})}
 
     layer.metadata = meta
-
-
-def _enrich_soilgrids(layer: TiffLayer) -> None:
-    meta = {}
-
-    meta["layer"] = {
-        "source": "soilgrids",
-        "resolution": "250m",
-        "license": "CC-BY-4.0",
-    }
-
-    if layer.attribute:
-        attr = SOILGRIDS_ATTRIBUTES.get(layer.attribute)
-        if attr:
-            meta["attribute"] = {
-                "code": layer.attribute,
-                "caption": attr.get("caption"),
-                "description": attr.get("description"),
-                "unit": attr.get("unit"),
-                "unit_raw": attr.get("unit_raw"),
-                "scale_factor": attr.get("scale_factor"),
-                "unit_converted": attr.get("unit_converted"),
-            }
-            sq_mapping = SOILGRIDS_TO_SQ_MAPPING.get(layer.attribute)
-            if sq_mapping:
-                meta["attribute"]["feeds_into_sq"] = sq_mapping
-        else:
-            meta["attribute"] = {"code": layer.attribute, "unresolved": True}
-
-    if layer.depth:
-        dep = SOILGRIDS_DEPTHS.get(layer.depth)
-        if dep:
-            meta["depth"] = {
-                "code": layer.depth,
-                "label": dep.get("label"),
-                "top_cm": dep.get("top_cm"),
-                "bottom_cm": dep.get("bottom_cm"),
-            }
-        else:
-            meta["depth"] = {"code": layer.depth, "unresolved": True}
-
-    if layer.quantile:
-        q = SOILGRIDS_QUANTILES.get(layer.quantile)
-        if q:
-            meta["quantile"] = {
-                "code": layer.quantile,
-                "caption": q.get("caption"),
-                "description": q.get("description"),
-            }
-        else:
-            meta["quantile"] = {"code": layer.quantile, "unresolved": True}
-
-    layer.metadata = meta
-
-
-def enrich(layer: TiffLayer) -> TiffLayer:
-    """Resolve all dimension codes to full metadata. Routes by source."""
-    if layer.source == "soilgrids":
-        _enrich_soilgrids(layer)
-    else:
-        _enrich_gaez(layer)
     return layer
 
 
@@ -400,8 +261,7 @@ def enrich(layer: TiffLayer) -> TiffLayer:
 # Convenience
 # ──────────────────────────────────────────────────────────────────────
 
-def from_url(url: str, source: str) -> TiffLayer:
+def from_url(url: str) -> TiffLayer:
     """Parse a URL and enrich with full metadata in one step."""
-    tiff_dataclass = parse_url(url, source)
-    return enrich(tiff_dataclass)
-
+    layer = parse_url(url)
+    return enrich(layer)

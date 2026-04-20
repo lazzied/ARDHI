@@ -1,0 +1,12 @@
+for yield:
+code:
+RES05-YXX 
+RES05-YLX30AS
+add it to metadata; download insert and clip
+
+in suitability we didn't use cropland
+in yield we didn't use cropland
+
+links:
+
+
