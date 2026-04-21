@@ -1,157 +1,254 @@
+from __future__ import annotations
+
 import re
 import pandas as pd
-import os
-from typing import List
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Dict, Iterator, List
+
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
+from engines.edaphic_crop_reqs.utils_functions import (
+    attribute_pairs_to_df,
+    generate_sq_df,
+    write_sq_df_to_csv,
+)
 
-@dataclass
-class SoilPhaseBlock(SoilCharacteristicsBlock):
-    shares: List[str] = None
+# ---------------------------------------------------------------------------
+# Sheet layout constants (0-based row / column indices)
+# ---------------------------------------------------------------------------
+# Note: input level has no fixed row — it is extracted from the table title
+# by _parse_input_level(), which scans rows dynamically.
+SHARE_ROW       = 3   # Excel row 4 — applicability share (%)
+ATTRIBUTE_ROW   = 4   # Excel row 5 — soil phase names  (VAL row)
+DATA_START_ROW  = 6   # Excel row 7 — first crop data row
 
-# --- Constants for Appendix 6.3.4 (0-based indices) ---
-SHARE_ROW = 3        
-SOIL_PHASE_ROW = 4   
-DATA_START_ROW = 6   # Row 7 in Excel
-SQ_COLUMN_RANGES = {
-    "SQ3": (2, 28),
+ATTRIBUTE_NAME  = "SPH"
+
+# Irregular column ranges per SQ (0-based, inclusive on both ends).
+# Slicing uses df.iloc[:, start : end + 1], so end is the last included column.
+SQ_COLUMN_RANGES: Dict[str, tuple[int, int]] = {
+    "SQ3": (2,  28),
     "SQ4": (29, 44),
     "SQ5": (45, 47),
     "SQ6": (48, 49),
-    "SQ7": (50, 76)
+    "SQ7": (50, 76),
 }
 
-def set_input_level(df: pd.DataFrame) -> InputLevel:
-    text = str(df.iloc[1, 1]).lower()
-    if re.search(r"\bhigh\b", text):
-        return InputLevel.HIGH
-    elif re.search(r"\bintermediate\b", text):
-        return InputLevel.INTERMEDIATE
-    elif re.search(r"\blow\b", text):
-        return InputLevel.LOW
-    raise ValueError(f"Could not determine input level from text: {text}")
 
-def extract_blocks_v4(df: pd.DataFrame, crop_id: int) -> List[SoilPhaseBlock]:
-    """Extracts Soil Phase blocks for each Soil Quality."""
-    blocks = []
-    
-    # FIX: Robust crop ID lookup (handles floats, strings, and formatting)
-    try:
-        # Convert first column to numeric to ensure '4' matches '4.0'
-        id_column = pd.to_numeric(df[0], errors='coerce')
-        crop_row_indices = df.index[id_column == crop_id].tolist()
-        if not crop_row_indices:
-            print(f"Warning: Crop ID {crop_id} not found.")
-            return []
-        crop_row_idx = crop_row_indices[0]
-    except Exception as e:
-        print(f"Error during crop lookup: {e}")
-        return []
+# ---------------------------------------------------------------------------
+# Extended block model — carries the share metadata specific to Appendix 6.3.4
+# ---------------------------------------------------------------------------
 
-    for sq_name, (start, end) in SQ_COLUMN_RANGES.items():
-        # Safety check for column ranges
-        if start >= df.shape[1]: continue
-        actual_end = min(end, df.shape[1] - 1)
-        
-        block_df = df.iloc[:, start : actual_end + 1]
-        
-        # FIX: Strip whitespace from names for cleaner lookup files
-        thresholds = block_df.iloc[SOIL_PHASE_ROW].fillna("").astype(str).str.strip().tolist()
-        shares = block_df.iloc[SHARE_ROW].fillna("").astype(str).str.strip().tolist()
-        
-        # Convert penalties to float, default to 100 if missing
-        penalties = pd.to_numeric(df.iloc[crop_row_idx, start:actual_end+1], errors='coerce').fillna(100.0).tolist()
-        
-        # Filter out empty entries in the range
-        valid_t, valid_p = [], []
-        for t, p in zip(thresholds, penalties):
-            if t: # Only keep if a soil phase name exists
-                valid_t.append(t)
-                valid_p.append(p)
+@dataclass
+class SoilPhaseBlock(SoilCharacteristicsBlock):
+    """SoilCharacteristicsBlock extended with per-phase applicability shares."""
+    shares: List[str] = field(default_factory=list)
 
-        if valid_t:
-            blocks.append(
-                SoilPhaseBlock(
-                    col_start=start, col_end=actual_end,
-                    attribute_name="SPH", soil_qualities=[sq_name],
-                    penalties=valid_p, thresholds_row=valid_t, shares=shares,
-                    input_levels=[set_input_level(df)]  # Assuming one input level per sheet
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _parse_input_level(df: pd.DataFrame) -> InputLevel:
+    """
+    Scan every row for the table title and extract the input level from it.
+
+    Looks for a cell containing the pattern  'Table A6-3.4 ... <Level> Input'
+    (e.g. 'Table A6-3.4   Soil Phase Characteristics affecting High Input Farming').
+    No fixed row index is assumed — the title row is located dynamically.
+
+    Raises ValueError if no matching row is found.
+    """
+    title_pattern    = re.compile(r"table\s+a6-3\.4", re.IGNORECASE)
+    level_pattern    = re.compile(r"\b(high|intermediate|low)\b", re.IGNORECASE)
+
+    for _, row in df.iterrows():
+        for cell in row:
+            cell_text = str(cell).strip()
+            if title_pattern.search(cell_text):
+                match = level_pattern.search(cell_text)
+                if match:
+                    level = match.group(1).lower()
+                    if level == "high":
+                        return InputLevel.HIGH
+                    if level == "intermediate":
+                        return InputLevel.INTERMEDIATE
+                    if level == "low":
+                        return InputLevel.LOW
+                raise ValueError(
+                    f"Table title found but no input level keyword detected: {cell_text!r}"
                 )
-            )
+
+    raise ValueError("Could not locate the Table A6-3.4 title row in the CSV.")
+
+
+def _resolve_crop_row(df: pd.DataFrame, crop_id: int) -> int:
+    """Return the 0-based row index for *crop_id*, handling float/string IDs."""
+    id_col = pd.to_numeric(df.iloc[:, 0], errors="coerce")
+    matches = df.index[id_col == crop_id].tolist()
+    if not matches:
+        raise ValueError(f"crop_id {crop_id} not found in appendix 6.3.4")
+    return matches[0]
+
+
+# ---------------------------------------------------------------------------
+# Block extraction
+# ---------------------------------------------------------------------------
+
+def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilPhaseBlock]:
+    """
+    Parse one SoilPhaseBlock per SQ from the Appendix 6.3.4 DataFrame.
+
+    Layout (irregular column ranges defined in SQ_COLUMN_RANGES)
+    ------------------------------------------------------------
+    Row INPUT_LEVEL_ROW : single sheet-level input level text
+    Row SHARE_ROW       : applicability share (%) per soil phase
+    Row ATTRIBUTE_ROW   : soil phase names → thresholds
+    Row crop_row_idx    : penalty values for the requested crop
+
+    The input level is the same for every block (sheet-wide constant).
+    Columns with no soil phase name are silently dropped.
+    """
+    crop_row_idx = _resolve_crop_row(df, crop_id)
+    input_level  = _parse_input_level(df)
+
+    blocks: List[SoilPhaseBlock] = []
+
+    for sq_label, (start, end) in SQ_COLUMN_RANGES.items():
+        if start >= df.shape[1]:
+            continue
+        actual_end = min(end, df.shape[1] - 1)
+
+        block_slice = df.iloc[:, start : actual_end + 1]
+
+        thresholds = block_slice.iloc[ATTRIBUTE_ROW].fillna("").astype(str).str.strip().tolist()
+        shares     = block_slice.iloc[SHARE_ROW].fillna("").astype(str).str.strip().tolist()
+        penalties  = (
+            pd.to_numeric(df.iloc[crop_row_idx, start : actual_end + 1], errors="coerce")
+            .fillna(100.0)
+            .tolist()
+        )
+
+        # Drop columns where no soil phase name is present
+        valid_thresholds, valid_penalties, valid_shares = [], [], []
+        for t, p, s in zip(thresholds, penalties, shares):
+            if t:
+                valid_thresholds.append(t)
+                valid_penalties.append(p)
+                valid_shares.append(s)
+
+        if not valid_thresholds:
+            continue
+
+        blocks.append(SoilPhaseBlock(
+            col_start      = start,
+            col_end        = actual_end,
+            attribute_name = ATTRIBUTE_NAME,
+            soil_qualities = [sq_label],
+            input_levels   = [input_level],
+            penalties      = valid_penalties,
+            thresholds_row = valid_thresholds,
+            shares         = valid_shares,
+        ))
+
     return blocks
 
-def build_attribute_pair_v4(block: SoilPhaseBlock, crop_id: int) -> AttributePair:
-    return AttributePair(
-        attribute_name=block.attribute_name,
-        rating_curve=RatingCurve(crop_id=crop_id, penalties=block.penalties, thresholds=block.thresholds_row)
-    )
 
-def run_pipeline_v4(csv_path: str, crop_id: int, output_dir: str = ".") -> None:
-    """Main pipeline to parse SPH data and generate individual SQ CSV files."""
-    if not os.path.exists(csv_path):
-        local_name = os.path.basename(csv_path)
-        if os.path.exists(local_name):
-            csv_path = local_name
-        else:
-            print(f"Error: {csv_path} not found.")
-            return
+# ---------------------------------------------------------------------------
+# Filtering functions
+# ---------------------------------------------------------------------------
 
-    df = pd.read_csv(csv_path, header=None)
-    blocks = extract_blocks_v4(df, crop_id)
-    
-    if not blocks:
-        print("No data found for the specified crop.")
-        return
-
+def filter_blocks_by_input_level(
+    blocks:      List[SoilPhaseBlock],
+    input_level: InputLevel,
+) -> Iterator[SoilPhaseBlock]:
     for block in blocks:
-        sq_label = block.soil_qualities[0]
-        pair = build_attribute_pair_v4(block, crop_id)
-        
-        output_data = [
-            ["SPH_val"] + pair.rating_curve.thresholds,
-            ["SPH_fct"] + pair.rating_curve.penalties
-        ]
-        
-        out_df = pd.DataFrame(output_data)
-        out_filename = f"{output_dir}/{sq_label}_SPH.csv"
-        out_df.to_csv(out_filename, header=False, index=False)
-        print(f"Successfully saved: {out_filename}")
+        if input_level in block.input_levels:
+            yield block
 
-# Run for Crop ID 4 (Maize)
-run_pipeline_v4("engines/edaphic_crop_reqs/appendixes/appendix6_3_4.csv", 4, "engines/edaphic_crop_reqs/temp_results")
 
-"""
-    
-    In the context of the Appendix 6.3.4 parser, the **Share (%)** represents the "Soil Phase Applicability Share." In simpler terms, it defines the weight or the percentage of a specific crop rating that should be applied when a particular soil phase (like "Lithic" or "Petric") is present.
+def filter_blocks_by_sq(
+    blocks: List[SoilPhaseBlock],
+    sq_id:  int,
+) -> Iterator[SoilPhaseBlock]:
+    for block in blocks:
+        if f"SQ{sq_id}" in block.soil_qualities:
+            yield block
 
-Here is the technical breakdown of how the parser logic handles this data:
 
-### 1. Recognition as Metadata (Not a Functional Constraint)
-Unlike the crop ratings (penalties), the share values are not used as direct inputs for the standard GAEZ (Global Agro-Ecological Zones) rating curves. Instead, the parser treats the share as **embedded metadata**. 
-* **Why:** In previous appendices (6.3.1–6.3.3), the logic is purely threshold-based. In 6.3.4, the share is a descriptive property of the soil phase itself. 
-* **Storage:** It is captured during the block extraction phase and stored in the `shares` field of the `SoilPhaseBlock` dataclass.
+# ---------------------------------------------------------------------------
+# AttributePair builder
+# ---------------------------------------------------------------------------
 
-### 2. The Slice-and-Align Strategy
-Because the columns in Table A6-3.4 are irregular, I implemented a "Slice-and-Align" strategy to ensure the share stays correctly mapped to the right soil phase:
-* **Vertical Alignment:** The parser looks at the fixed column range (e.g., `D` through `AD` for SQ3).
-* **Index Mapping:** It extracts Row 4 (Shares) and Row 5 (Soil Phases) simultaneously. This ensures that if the "Lithic" phase is in the third column of the block, it is paired exactly with the share value located directly above it in that same column.
+def build_attribute_pair(block: SoilPhaseBlock, crop_id: int) -> AttributePair:
+    curve = RatingCurve(
+        crop_id    = crop_id,
+        penalties  = block.penalties,
+        thresholds = block.thresholds_row,
+    )
+    return AttributePair(attribute_name=block.attribute_name, rating_curve=curve)
 
-### 3. Handling Sparse Data (Nulls)
-The CSV layout for the share row is "sparse," meaning the percentage might only be written once for a group of columns, or there might be empty cells between values.
-* **The Logic:** The parser uses `.fillna("")` to prevent code crashes on empty cells. 
-* **Cleaning:** It strips whitespace and % signs so that the resulting data structure is clean for downstream calculations, transforming `"50%"` into a clean string or numeric value if required by the pipeline.
 
-### 4. Downstream Integration (The "Invisible" Field)
-While the final CSV output for `SPH_val` and `SPH_fct` follows the rigid two-row format required by your current pipeline (to avoid breaking existing code), the **Share** data is preserved in the underlying `SoilPhaseBlock` object.
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
 
-This allows the system to remain extensible:
-* **Current State:** The output CSVs only show the Phase Name and the Penalty.
-* **Future State:** If your calculation engine needs to apply a "Weighted Penalty" (e.g., *Penalty * Share*), the `shares` list is already indexed and ready to be exported or used in a third row without needing to rewrite the parser.
-
-**Summary of Data Flow:**
-1.  **Extract:** Grab the entire SQ block.
-2.  **Zip:** Pair `Soil Phase Name[i]` with `Share[i]` and `Penalty[i]`.
-3.  **Filter:** Remove any columns where the Soil Phase Name is empty.
-4.  **Produce:** Output the standard 2-row CSV while holding the Share data in memory for metadata logging.
-    
+def run_pipeline(
+    csv_path:   str,
+    crop_id:    int,
+    output_dir: str = ".",
+) -> Dict[str, pd.DataFrame]:
     """
+    Full pipeline:
+      1. Load CSV
+      2. Extract all blocks for crop_id  (input level auto-detected from title)
+      3. Group by SQ
+      4. Build AttributePairs and DataFrames per SQ
+      5. Write one CSV per SQ
+
+    The input level is deduced automatically from the table title embedded in
+    the CSV (e.g. "High Input Farming" → InputLevel.HIGH).  It does not need
+    to be supplied by the caller.
+
+    Returns a dict of {sq_label: DataFrame} for inspection.
+
+    Note on shares
+    --------------
+    The applicability share (%) for each soil phase is preserved inside each
+    SoilPhaseBlock.shares list.  The standard two-row output (SPH_val / SPH_fct)
+    remains unchanged; the share data is available for future weighted-penalty
+    calculations without any parser changes.
+    """
+    df = pd.read_csv(csv_path, header=None)
+
+    # Step 1: extract all blocks for this crop (input level auto-detected inside)
+    all_blocks = extract_blocks(df, crop_id)
+
+    # Step 2: group by SQ
+    sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)
+    for block in all_blocks:
+        pair = build_attribute_pair(block, crop_id)
+        for sq in block.soil_qualities:
+            sq_groups[sq].append(pair)
+
+    # Step 4: build one DataFrame per SQ and write CSV
+    result: Dict[str, pd.DataFrame] = {}
+    for sq_label, pairs in sorted(sq_groups.items()):
+        sq_df = generate_sq_df([attribute_pairs_to_df([p]) for p in pairs])
+        write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+        result[sq_label] = sq_df
+        print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    results = run_pipeline(
+        csv_path   = "engines/edaphic_crop_reqs/appendixes/appendix6_3_4.csv",
+        crop_id    = 4,
+        output_dir = "engines/edaphic_crop_reqs/results",
+    )

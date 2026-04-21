@@ -1,179 +1,179 @@
 from __future__ import annotations
 
 import pandas as pd
-from typing import List, Dict, Iterator
 from collections import defaultdict
+from typing import Dict, Iterator, List
 
 from engines.edaphic_crop_reqs.constants import CROPS
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
-from engines.edaphic_crop_reqs.utils_functions import attribute_pairs_to_df, generate_sq_df, parse_input_levels, parse_sq_labels, write_sq_df_to_csv
+from engines.edaphic_crop_reqs.utils_functions import (
+    attribute_pairs_to_df,
+    generate_sq_df,
+    parse_input_levels,
+    parse_sq_labels,
+    write_sq_df_to_csv,
+)
 
-# ---------------------------------------------------------
-# APPENDIX 2 CONFIG
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Sheet layout constants (0-based row / column indices)
+# ---------------------------------------------------------------------------
+INPUT_LEVEL_ROW = 2   # Excel row 3 — input level text
+SQ_ROW          = 3   # Excel row 4 — SQ label
+ATTRIBUTE_ROW   = 4   # Excel row 5 — texture class labels  (VAL row)
+DATA_START_ROW  = 6   # Excel row 7 — first crop data row   (FCT matrix)
 
-ATTRIBUTE_ROW   = 4   
-SQ_ROW          = 3
-INPUT_LEVEL_ROW = 2
-DATA_START_ROW  = 6
+BLOCK_START_COL = 2   # first data column (0-based)
+BLOCK_WIDTH     = 13  # columns per block
 
-BLOCK_START_COL = 2
-BLOCK_WIDTH     = 13
+ATTRIBUTE_NAME  = "TXT"
 
 
-# ---------------------------------------------------------
-# BLOCK EXTRACTION (FIXED LOGIC)
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Block extraction
+# ---------------------------------------------------------------------------
 
-def extract_blocks_v2(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBlock]:
+def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBlock]:
     """
-    Appendix 2:
-    - Row 4 = TEXTURE CLASSES (VAL)
-    - Rows 6+ = PENALTY MATRIX (FCT)
+    Parse all 13-column blocks from the Appendix 6.3.2 DataFrame.
+
+    Layout per block
+    ----------------
+    Row INPUT_LEVEL_ROW : input level text
+    Row SQ_ROW          : SQ label(s)
+    Row ATTRIBUTE_ROW   : texture class names  → thresholds
+    Rows DATA_START_ROW+: penalty matrix; the row matching crop_id → penalties
     """
+    if crop_id not in CROPS:
+        raise ValueError(f"crop_id {crop_id} not found")
+
+    crop_row_idx = CROPS[crop_id]["row"] - 1   # convert 1-based Excel row to 0-based
 
     blocks: List[SoilCharacteristicsBlock] = []
     total_cols = df.shape[1]
 
-    crop_row_idx = CROPS[crop_id]["row"] - 1  # convert to 0-based
-
     col = BLOCK_START_COL
-
     while col + BLOCK_WIDTH <= total_cols:
-        block = df.iloc[:, col: col + BLOCK_WIDTH]
+        block_slice = df.iloc[:, col : col + BLOCK_WIDTH]
 
-        # metadata rows
-        sq_text = " ".join(str(v) for v in block.iloc[SQ_ROW] if pd.notna(v))
-        input_text = " ".join(str(v) for v in block.iloc[INPUT_LEVEL_ROW] if pd.notna(v))
+        # Row values for this block
+        sq_text          = " ".join(str(v) for v in block_slice.iloc[SQ_ROW]          if pd.notna(v))
+        input_level_text = " ".join(str(v) for v in block_slice.iloc[INPUT_LEVEL_ROW] if pd.notna(v))
+        thresholds       = [str(v).strip() for v in block_slice.iloc[ATTRIBUTE_ROW].tolist() if pd.notna(v)]
 
-        # -----------------------------------------------------
-        # FIX 1: VAL ROW = TEXTURE CLASSES
-        # -----------------------------------------------------
-        val_row = block.iloc[ATTRIBUTE_ROW]
-        thresholds = [str(v).strip() for v in val_row.tolist() if pd.notna(v)]
+        # Crop-specific penalty row (relative index within the FCT matrix)
+        fct_matrix        = block_slice.iloc[DATA_START_ROW:]
+        penalties_matrix  = fct_matrix.astype(float).values.tolist()
+        penalties         = penalties_matrix[crop_row_idx - DATA_START_ROW]
 
-        # -----------------------------------------------------
-        # FIX 2: FCT MATRIX (ALL CROPS)
-        # -----------------------------------------------------
-        fct_matrix = block.iloc[DATA_START_ROW:]
-        penalties_matrix = fct_matrix.astype(float).values.tolist()
+        if not thresholds:
+            col += BLOCK_WIDTH
+            continue
 
-        # crop-specific row selection
-        crop_penalties = penalties_matrix[crop_row_idx - DATA_START_ROW]
-
-        blocks.append(
-            SoilCharacteristicsBlock(
-                col_start=col,
-                col_end=col + BLOCK_WIDTH,
-                attribute_name="TXT",
-                soil_qualities=parse_sq_labels(sq_text),
-                input_levels=parse_input_levels(input_text),
-
-                penalties=crop_penalties,     # FIXED: per crop row
-                thresholds_row=thresholds,    # FIXED: texture classes
-            )
-        )
+        blocks.append(SoilCharacteristicsBlock(
+            col_start      = col,
+            col_end        = col + BLOCK_WIDTH,
+            attribute_name = ATTRIBUTE_NAME,
+            soil_qualities = parse_sq_labels(sq_text),
+            input_levels   = parse_input_levels(input_level_text),
+            penalties      = penalties,
+            thresholds_row = thresholds,
+        ))
 
         col += BLOCK_WIDTH
 
     return blocks
 
 
-# ---------------------------------------------------------
-# ATTRIBUTE PAIR BUILDER (FIXED CONSISTENCY)
-# ---------------------------------------------------------
-
-def build_attribute_pair_v2(
-    block: SoilCharacteristicsBlock,
-    crop_id: int
-) -> AttributePair:
-
-    curve = RatingCurve(
-        crop_id=crop_id,
-        penalties=block.penalties,      # already crop-specific
-        thresholds=block.thresholds_row
-    )
-
-    return AttributePair(
-        attribute_name=block.attribute_name,
-        rating_curve=curve,
-    )
-
-
-# ---------------------------------------------------------
-# FILTERS (UNCHANGED LOGIC)
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Filtering functions
+# ---------------------------------------------------------------------------
 
 def filter_blocks_by_input_level(
-    blocks: List[SoilCharacteristicsBlock],
+    blocks:      List[SoilCharacteristicsBlock],
     input_level: InputLevel,
 ) -> Iterator[SoilCharacteristicsBlock]:
-
-    for b in blocks:
-        if input_level in b.input_levels:
-            yield b
+    for block in blocks:
+        if input_level in block.input_levels:
+            yield block
 
 
 def filter_blocks_by_sq(
     blocks: List[SoilCharacteristicsBlock],
-    sq_id: int,
+    sq_id:  int,
 ) -> Iterator[SoilCharacteristicsBlock]:
+    for block in blocks:
+        if f"SQ{sq_id}" in block.soil_qualities:
+            yield block
 
-    for b in blocks:
-        if f"SQ{sq_id}" in b.soil_qualities:
-            yield b
+
+# ---------------------------------------------------------------------------
+# AttributePair builder
+# ---------------------------------------------------------------------------
+
+def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> AttributePair:
+    curve = RatingCurve(
+        crop_id    = crop_id,
+        penalties  = block.penalties,
+        thresholds = block.thresholds_row,
+    )
+    return AttributePair(attribute_name=block.attribute_name, rating_curve=curve)
 
 
-# ---------------------------------------------------------
-# PIPELINE (UNCHANGED STRUCTURE)
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
 
-def run_pipeline_v2(
-    csv_path: str,
-    crop_id: int,
+def run_pipeline(
+    csv_path:    str,
+    crop_id:     int,
     input_level: InputLevel,
-    output_dir: str = ".",
+    output_dir:  str = ".",
 ) -> Dict[str, pd.DataFrame]:
+    """
+    Full pipeline:
+      1. Load CSV
+      2. Extract all blocks for crop_id
+      3. Filter blocks by input_level
+      4. Group by SQ
+      5. Build AttributePairs and DataFrames per SQ
+      6. Write one CSV per SQ
 
+    Returns a dict of {sq_label: DataFrame} for inspection.
+    """
     df = pd.read_csv(csv_path, header=None)
 
-    # 1. extract blocks
-    blocks = extract_blocks_v2(df, crop_id)
+    # Step 1: extract all blocks for this crop
+    all_blocks = extract_blocks(df, crop_id)
 
-    # 2. filter input level
-    blocks = list(filter_blocks_by_input_level(blocks, input_level))
+    # Step 2: filter by input level
+    filtered_blocks = list(filter_blocks_by_input_level(all_blocks, input_level))
 
-    # 3. group by SQ
-    sq_groups = defaultdict(list)
-
-    for block in blocks:
-        pair = build_attribute_pair_v2(block, crop_id)
-
+    # Step 3: group by SQ
+    sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)
+    for block in filtered_blocks:
+        pair = build_attribute_pair(block, crop_id)
         for sq in block.soil_qualities:
             sq_groups[sq].append(pair)
 
-    # 4. build output
-    result: dict[str, pd.DataFrame] = {}
-    for sq, pairs in sq_groups.items():
-        dfs = [attribute_pairs_to_df([p]) for p in pairs]
-        sq_df = generate_sq_df(dfs)
-
-        write_sq_df_to_csv(sq_df, f"{output_dir}/{sq}.csv")
-
-        result[sq] = sq_df
-        print(f"[Appendix2] Written {sq}.csv")
+    # Step 4: build one DataFrame per SQ and write CSV
+    result: Dict[str, pd.DataFrame] = {}
+    for sq_label, pairs in sorted(sq_groups.items()):
+        sq_df = generate_sq_df([attribute_pairs_to_df([p]) for p in pairs])
+        write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+        result[sq_label] = sq_df
+        print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
 
     return result
 
 
-# ---------------------------------------------------------
-# ENTRY POINT
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    run_pipeline_v2(
-        csv_path="engines/edaphic_crop_reqs/appendixes/appendix6_3_2.csv",
-        crop_id=4,
-        input_level=InputLevel.INTERMEDIATE,
-        output_dir="engines/edaphic_crop_reqs/results",
+    results = run_pipeline(
+        csv_path    = "engines/edaphic_crop_reqs/appendixes/appendix6_3_2.csv",
+        crop_id     = 4,
+        input_level = InputLevel.INTERMEDIATE,
+        output_dir  = "engines/edaphic_crop_reqs/results",
     )

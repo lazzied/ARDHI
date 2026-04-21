@@ -1,139 +1,188 @@
 from __future__ import annotations
 
 import pandas as pd
-from typing import List, Dict, Iterator
 from collections import defaultdict
-from dataclasses import dataclass
-from enum import Enum
+from typing import Dict, Iterator, List
 
 from engines.edaphic_crop_reqs.constants import CROPS
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
-from engines.edaphic_crop_reqs.utils_functions import attribute_pairs_to_df, generate_sq_df, parse_input_levels, write_sq_df_to_csv
+from engines.edaphic_crop_reqs.utils_functions import (
+    attribute_pairs_to_df,
+    generate_sq_df,
+    parse_input_levels,
+    write_sq_df_to_csv,
+)
+
+# ---------------------------------------------------------------------------
+# Sheet layout constants (0-based row / column indices)
+# ---------------------------------------------------------------------------
+INPUT_LEVEL_ROW    = 3   # Excel row 4 — input level text
+TEXTURAL_GROUP_ROW = 4   # Excel row 5 — textural grouping label
+ATTRIBUTE_ROW      = 5   # Excel row 6 — drainage class names  (VAL row)
+DATA_START_ROW     = 7   # Excel row 8 — first crop data row
+
+BLOCK_START_COL    = 2   # first data column (0-based)
+BLOCK_WIDTH        = 7   # columns per block (7 drainage classes)
+
+ATTRIBUTE_PREFIX   = "DRG"   # base name; suffixed with texture group
+FIXED_SQ           = "SQ4"   # Appendix 6.3.3 always maps to SQ4
 
 
-# ---------------------------------------------------------
-# APPENDIX 3 CONFIG (0-BASED INDEXING)
-# ---------------------------------------------------------
-# Note: Offsets adjusted to match appendix6_3_3.csv layout
-INPUT_LEVEL_ROW    = 3   # Excel Row 4
-TEXTURAL_GROUP_ROW = 4   # Excel Row 5
-ATTRIBUTE_ROW      = 5   # Excel Row 6 (Drainage Classes)
-DATA_START_ROW     = 7   # Excel Row 8 (First Crop Data)
+# ---------------------------------------------------------------------------
+# Block extraction
+# ---------------------------------------------------------------------------
 
-BLOCK_START_COL    = 2   # Column C (Excel)
-BLOCK_WIDTH        = 7   # 7 Drainage classes per block
-
-ATTRIBUTE_NAME     = "DRG"
-FIXED_SQ           = "SQ4"
-
-TEXTURAL_GROUPINGS = ["Fine textures", "Medium textures", "Coarse textures"]
-
-# ---------------------------------------------------------
-# BLOCK EXTRACTION
-# ---------------------------------------------------------
-
-def extract_blocks_v3(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBlock]:
+def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBlock]:
     """
-    Appendix 3:
-    - Row 4 = Input Levels
-    - Row 5 = Textural Groupings (Fine, Medium, Coarse)
-    - Row 6 = Drainage Classes (Very Poor ... Excessive)
-    - Rows 8+ = Rating Matrix
+    Parse all 7-column blocks from the Appendix 6.3.3 DataFrame.
+
+    Layout per block
+    ----------------
+    Row INPUT_LEVEL_ROW    : input level text
+    Row TEXTURAL_GROUP_ROW : textural grouping  (Fine / Medium / Coarse textures)
+    Row ATTRIBUTE_ROW      : drainage class names → thresholds
+    Rows DATA_START_ROW+   : crop rating rows; row matching crop_id → penalties
+
+    All blocks belong to the fixed soil quality FIXED_SQ ("SQ4").
+    The attribute name is derived dynamically from the textural group label,
+    e.g. "Fine textures" → "DRG_Fine".
     """
+    if crop_id not in CROPS:
+        raise ValueError(f"crop_id {crop_id} not found")
+
+    crop_row_idx = CROPS[crop_id]["row"] - 1   # convert 1-based Excel row to 0-based
+
     blocks: List[SoilCharacteristicsBlock] = []
     total_cols = df.shape[1]
-    
-    # 0-based index for the crop
-    crop_row_idx = CROPS[crop_id]["row"] - 1 
 
     col = BLOCK_START_COL
     while col + BLOCK_WIDTH <= total_cols:
-        # Extract Textural Group (e.g., "Fine textures")
-        group_raw = " ".join(df.iloc[TEXTURAL_GROUP_ROW, col : col + BLOCK_WIDTH].dropna().astype(str))
-        
-        # Extract Input Level text
-        input_raw = " ".join(df.iloc[INPUT_LEVEL_ROW, col : col + BLOCK_WIDTH].dropna().astype(str))
+        block_slice = df.iloc[:, col : col + BLOCK_WIDTH]
 
-        if not group_raw or not input_raw:
+        # Row values for this block
+        input_level_text = " ".join(
+            block_slice.iloc[INPUT_LEVEL_ROW].dropna().astype(str)
+        )
+        group_text = " ".join(
+            block_slice.iloc[TEXTURAL_GROUP_ROW].dropna().astype(str)
+        )
+
+        if not group_text or not input_level_text:
             col += BLOCK_WIDTH
             continue
 
-        # Clean texture name for attribute (e.g., "Fine textures" -> "Fine")
-        texture_name = group_raw.split()[0].capitalize()
-        dynamic_attr_name = f"{ATTRIBUTE_NAME}_{texture_name}"
+        # Derive attribute name from textural group, e.g. "DRG_Fine"
+        texture_label  = group_text.split()[0].capitalize()
+        attribute_name = f"{ATTRIBUTE_PREFIX}_{texture_label}"
 
-        # Get Drainage Classes (Headers for the _val row)
-        drainage_classes = [str(v).strip() for v in df.iloc[ATTRIBUTE_ROW, col : col + BLOCK_WIDTH].tolist()]
+        thresholds = [str(v).strip() for v in block_slice.iloc[ATTRIBUTE_ROW].tolist()]
+        penalties  = block_slice.iloc[crop_row_idx].astype(float).tolist()
 
-        # Get Numeric Ratings (Penalties for the _fct row)
-        ratings = df.iloc[crop_row_idx, col : col + BLOCK_WIDTH].astype(float).tolist()
+        blocks.append(SoilCharacteristicsBlock(
+            col_start      = col,
+            col_end        = col + BLOCK_WIDTH,
+            attribute_name = attribute_name,
+            soil_qualities = [FIXED_SQ],
+            input_levels   = parse_input_levels(input_level_text),
+            penalties      = penalties,
+            thresholds_row = thresholds,
+        ))
 
-        blocks.append(
-            SoilCharacteristicsBlock(
-                col_start=col,
-                col_end=col + BLOCK_WIDTH,
-                attribute_name=dynamic_attr_name,
-                soil_qualities=[FIXED_SQ],
-                input_levels=parse_input_levels(input_raw),
-                penalties=ratings,
-                thresholds_row=drainage_classes,
-            )
-        )
         col += BLOCK_WIDTH
 
     return blocks
 
-# ---------------------------------------------------------
-# PIPELINE
-# ---------------------------------------------------------
 
-def run_pipeline_v3(
-    csv_path: str,
-    crop_id: int,
+# ---------------------------------------------------------------------------
+# Filtering functions
+# ---------------------------------------------------------------------------
+
+def filter_blocks_by_input_level(
+    blocks:      List[SoilCharacteristicsBlock],
     input_level: InputLevel,
-    output_dir: str = ".",
+) -> Iterator[SoilCharacteristicsBlock]:
+    for block in blocks:
+        if input_level in block.input_levels:
+            yield block
+
+
+def filter_blocks_by_sq(
+    blocks: List[SoilCharacteristicsBlock],
+    sq_id:  int,
+) -> Iterator[SoilCharacteristicsBlock]:
+    for block in blocks:
+        if f"SQ{sq_id}" in block.soil_qualities:
+            yield block
+
+
+# ---------------------------------------------------------------------------
+# AttributePair builder
+# ---------------------------------------------------------------------------
+
+def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> AttributePair:
+    curve = RatingCurve(
+        crop_id    = crop_id,
+        penalties  = block.penalties,
+        thresholds = block.thresholds_row,
+    )
+    return AttributePair(attribute_name=block.attribute_name, rating_curve=curve)
+
+
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
+
+def run_pipeline(
+    csv_path:    str,
+    crop_id:     int,
+    input_level: InputLevel,
+    output_dir:  str = ".",
 ) -> Dict[str, pd.DataFrame]:
     """
-    Processes Appendix 6.3.3 for a specific crop and input level.
-    Results are grouped into SQ4.csv.
+    Full pipeline:
+      1. Load CSV
+      2. Extract all blocks for crop_id
+      3. Filter blocks by input_level
+      4. Group by SQ  (always SQ4 for this appendix)
+      5. Build AttributePairs and DataFrames per SQ
+      6. Write one CSV per SQ
+
+    Returns a dict of {sq_label: DataFrame} for inspection.
     """
     df = pd.read_csv(csv_path, header=None)
 
-    # 1. Extract all blocks
-    all_blocks = extract_blocks_v3(df, crop_id)
+    # Step 1: extract all blocks for this crop
+    all_blocks = extract_blocks(df, crop_id)
 
-    # 2. Filter by Input Level
-    filtered_blocks = [b for b in all_blocks if input_level in b.input_levels]
+    # Step 2: filter by input level
+    filtered_blocks = list(filter_blocks_by_input_level(all_blocks, input_level))
 
-    # 3. Format as AttributePairs
-    pairs = []
+    # Step 3: group by SQ
+    sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)
     for block in filtered_blocks:
-        curve = RatingCurve(
-            crop_id=crop_id,
-            penalties=block.penalties,
-            thresholds=block.thresholds_row
-        )
-        pairs.append(AttributePair(attribute_name=block.attribute_name, rating_curve=curve))
+        pair = build_attribute_pair(block, crop_id)
+        for sq in block.soil_qualities:
+            sq_groups[sq].append(pair)
 
-    # 4. Generate Output (Fixed SQ4)
-    if not pairs:
-        print(f"[Appendix3] No data found for {input_level.value}")
-        return {}
+    # Step 4: build one DataFrame per SQ and write CSV
+    result: Dict[str, pd.DataFrame] = {}
+    for sq_label, pairs in sorted(sq_groups.items()):
+        sq_df = generate_sq_df([attribute_pairs_to_df([p]) for p in pairs])
+        write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+        result[sq_label] = sq_df
+        print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
 
-    sq_df = generate_sq_df([attribute_pairs_to_df([p]) for p in pairs])
-    write_sq_df_to_csv(sq_df, f"{output_dir}/{FIXED_SQ}.csv")
-    
-    print(f"[Appendix3] Written {FIXED_SQ}.csv with {len(pairs)} textural attributes.")
-    return {FIXED_SQ: sq_df}
+    return result
 
-# ---------------------------------------------------------
-# ENTRY POINT
-# ---------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    run_pipeline_v3(
-        csv_path="engines/edaphic_crop_reqs/appendixes/appendix6_3_3.csv",
-        crop_id=4,  # Maize
-        input_level=InputLevel.INTERMEDIATE,
-        output_dir="engines/edaphic_crop_reqs/results",
+    results = run_pipeline(
+        csv_path    = "engines/edaphic_crop_reqs/appendixes/appendix6_3_3.csv",
+        crop_id     = 4,
+        input_level = InputLevel.INTERMEDIATE,
+        output_dir  = "engines/edaphic_crop_reqs/results",
     )
