@@ -1,5 +1,8 @@
 *.log
 *.tif
+*.xlsx
+*.pdf
+*.csv
 
 __pycache__/
 soilgrid_data/
