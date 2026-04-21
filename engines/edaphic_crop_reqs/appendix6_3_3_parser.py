@@ -24,8 +24,20 @@ DATA_START_ROW     = 7   # Excel row 8 — first crop data row
 BLOCK_START_COL    = 2   # first data column (0-based)
 BLOCK_WIDTH        = 7   # columns per block (7 drainage classes)
 
-ATTRIBUTE_PREFIX   = "DRG"   # base name; suffixed with texture group
+ATTRIBUTE_NAME     = "DRG"   # unified output name after texture selection
+ATTRIBUTE_PREFIX   = "DRG"   # base name used internally; suffixed with texture group
 FIXED_SQ           = "SQ4"   # Appendix 6.3.3 always maps to SQ4
+
+# Mapping from full drainage class label → short code used in _val output
+DRG_CODE_MAP: Dict[str, str] = {
+    "Very Poor":          "VP",
+    "Poor":               "P",
+    "Imperfectly":        "I",
+    "Moderately well":    "MW",
+    "Well":               "W",
+    "Somewhat excessive": "SE",
+    "Excessive":          "E",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +57,8 @@ def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBl
 
     All blocks belong to the fixed soil quality FIXED_SQ ("SQ4").
     The attribute name is derived dynamically from the textural group label,
-    e.g. "Fine textures" → "DRG_Fine".
+    e.g. "Fine textures" → "DRG_Fine".  Drainage class labels are stored as
+    full strings; short-code conversion happens at pipeline time.
     """
     if crop_id not in CROPS:
         raise ValueError(f"crop_id {crop_id} not found")
@@ -59,7 +72,6 @@ def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBl
     while col + BLOCK_WIDTH <= total_cols:
         block_slice = df.iloc[:, col : col + BLOCK_WIDTH]
 
-        # Row values for this block
         input_level_text = " ".join(
             block_slice.iloc[INPUT_LEVEL_ROW].dropna().astype(str)
         )
@@ -71,7 +83,7 @@ def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBl
             col += BLOCK_WIDTH
             continue
 
-        # Derive attribute name from textural group, e.g. "DRG_Fine"
+        # Internal attribute name retains texture suffix for filtering, e.g. "DRG_Fine"
         texture_label  = group_text.split()[0].capitalize()
         attribute_name = f"{ATTRIBUTE_PREFIX}_{texture_label}"
 
@@ -116,6 +128,47 @@ def filter_blocks_by_sq(
 
 
 # ---------------------------------------------------------------------------
+# Texture selection + short-code conversion
+# ---------------------------------------------------------------------------
+
+def select_texture_block(
+    blocks:               List[SoilCharacteristicsBlock],
+    texture_class_report: str,
+) -> SoilCharacteristicsBlock:
+    """
+    From the three textural blocks (Fine / Medium / Coarse) keep only the one
+    matching texture_class_report (case-insensitive).
+    Returns a copy of the matched block with:
+      - attribute_name renamed to ATTRIBUTE_NAME ("DRG")
+      - thresholds_row labels replaced with short codes via DRG_CODE_MAP
+    """
+    target = texture_class_report.strip().capitalize()  # e.g. "fine" -> "Fine"
+
+    for block in blocks:
+        # block.attribute_name is e.g. "DRG_Fine"
+        suffix = block.attribute_name.split("_", 1)[-1]  # "Fine"
+        if suffix == target:
+            short_thresholds = [
+                DRG_CODE_MAP.get(t, t) for t in block.thresholds_row
+            ]
+            return SoilCharacteristicsBlock(
+                col_start      = block.col_start,
+                col_end        = block.col_end,
+                attribute_name = ATTRIBUTE_NAME,
+                soil_qualities = block.soil_qualities,
+                input_levels   = block.input_levels,
+                penalties      = block.penalties,
+                thresholds_row = short_thresholds,
+            )
+
+    available = [b.attribute_name.split("_", 1)[-1].lower() for b in blocks]
+    raise ValueError(
+        f"texture_class_report {texture_class_report!r} not found. "
+        f"Available: {available}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # AttributePair builder
 # ---------------------------------------------------------------------------
 
@@ -133,19 +186,31 @@ def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> Attri
 # ---------------------------------------------------------------------------
 
 def run_pipeline(
-    csv_path:    str,
-    crop_id:     int,
-    input_level: InputLevel,
-    output_dir:  str = ".",
+    csv_path:             str,
+    crop_id:              int,
+    input_level:          InputLevel,
+    texture_class_report: str,
+    output_dir:           str  = ".",
+    write_output:         bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Full pipeline:
       1. Load CSV
       2. Extract all blocks for crop_id
       3. Filter blocks by input_level
-      4. Group by SQ  (always SQ4 for this appendix)
-      5. Build AttributePairs and DataFrames per SQ
-      6. Write one CSV per SQ
+      4. Select the single block matching texture_class_report and apply
+         short drainage-class codes to its thresholds
+      5. Group by SQ  (always SQ4 for this appendix)
+      6. Build AttributePairs and DataFrames per SQ
+      7. Optionally write one CSV per SQ (write_output=True)
+
+    Parameters
+    ----------
+    texture_class_report : "fine" | "medium" | "coarse"  — selects the
+                           drainage-class block for the measured soil texture.
+                           Produces a single DRG attribute in the output.
+    write_output         : write CSVs when True (default False so the
+                           aggregator does not produce intermediate files)
 
     Returns a dict of {sq_label: DataFrame} for inspection.
     """
@@ -157,20 +222,23 @@ def run_pipeline(
     # Step 2: filter by input level
     filtered_blocks = list(filter_blocks_by_input_level(all_blocks, input_level))
 
-    # Step 3: group by SQ
-    sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)
-    for block in filtered_blocks:
-        pair = build_attribute_pair(block, crop_id)
-        for sq in block.soil_qualities:
-            sq_groups[sq].append(pair)
+    # Step 3: select the matching texture block and apply short codes
+    selected_block = select_texture_block(filtered_blocks, texture_class_report)
 
-    # Step 4: build one DataFrame per SQ and write CSV
+    # Step 4: group by SQ
+    sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)
+    pair = build_attribute_pair(selected_block, crop_id)
+    for sq in selected_block.soil_qualities:
+        sq_groups[sq].append(pair)
+
+    # Step 5: build one DataFrame per SQ and optionally write CSV
     result: Dict[str, pd.DataFrame] = {}
     for sq_label, pairs in sorted(sq_groups.items()):
         sq_df = generate_sq_df([attribute_pairs_to_df([p]) for p in pairs])
-        write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+        if write_output:
+            write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+            print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
         result[sq_label] = sq_df
-        print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
 
     return result
 
@@ -181,8 +249,10 @@ def run_pipeline(
 
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path    = "engines/edaphic_crop_reqs/appendixes/appendix6_3_3.csv",
-        crop_id     = 4,
-        input_level = InputLevel.INTERMEDIATE,
-        output_dir  = "engines/edaphic_crop_reqs/results",
+        csv_path             = "engines/edaphic_crop_reqs/appendixes/appendix6_3_3.csv",
+        crop_id              = 4,
+        input_level          = InputLevel.INTERMEDIATE,
+        texture_class_report = "fine",
+        output_dir           = "engines/edaphic_crop_reqs/results",
+        write_output         = True,
     )

@@ -7,7 +7,7 @@ from typing import Dict, List
 from engines.edaphic_crop_reqs.models import InputLevel
 from engines.edaphic_crop_reqs.utils_functions import write_sq_df_to_csv
 
-from engines.edaphic_crop_reqs.appendixes import (
+from engines.edaphic_crop_reqs import (
     appendix6_3_1_parser as parser_1,
     appendix6_3_2_parser as parser_2,
     appendix6_3_3_parser as parser_3,
@@ -35,9 +35,11 @@ ALL_SQ_LABELS = [f"SQ{i}" for i in range(1, 8)]   # SQ1 … SQ7
 # ---------------------------------------------------------------------------
 
 def run_aggregator(
-    crop_id:     int,
-    input_level: InputLevel,
-    output_dir:  str = ".",
+    crop_id:              int,
+    input_level:          InputLevel,
+    ph_report:            float,
+    texture_class_report: str,
+    output_dir:           str = ".",
 ) -> Dict[str, pd.DataFrame]:
     """
     Run every registered parser pipeline, collect their per-SQ DataFrames,
@@ -45,25 +47,43 @@ def run_aggregator(
 
     Parameters
     ----------
-    crop_id     : numeric crop identifier shared by all parsers
-    input_level : InputLevel enum value applied to every parser
-    output_dir  : directory where the merged SQ CSVs are written
+    crop_id              : numeric crop identifier shared by all parsers
+    input_level          : InputLevel enum value applied to every parser
+    ph_report            : measured soil pH — passed to parser_1 to select
+                           the correct acidic or basic pH curve
+    texture_class_report : "fine" | "medium" | "coarse" — passed to parser_3
+                           to select the correct drainage-class block
+    output_dir           : directory where the merged SQ CSVs are written
 
     Returns
     -------
     dict mapping sq_label → merged DataFrame  (only SQs with data are included)
     """
+    # Extra kwargs forwarded only to the parsers that need them
+    EXTRA_KWARGS: Dict[str, dict] = {
+        parser_1.__name__: {"ph_report": ph_report},
+        parser_3.__name__: {"texture_class_report": texture_class_report},
+    }
+
     # Accumulate DataFrames per SQ across all parsers
     sq_buckets: Dict[str, List[pd.DataFrame]] = defaultdict(list)
 
     for parser, csv_path, needs_input_level in PARSER_REGISTRY:
         parser_name = parser.__name__.split(".")[-1]
+        full_name   = parser.__name__
         print(f"\n[Aggregator] Running {parser_name} ...")
 
         try:
-            kwargs = dict(csv_path=csv_path, crop_id=crop_id, output_dir=output_dir)
+            kwargs = dict(
+                csv_path     = csv_path,
+                crop_id      = crop_id,
+                output_dir   = output_dir,
+                write_output = False,   # parsers never write intermediate files
+            )
             if needs_input_level:
                 kwargs["input_level"] = input_level
+            kwargs.update(EXTRA_KWARGS.get(full_name, {}))
+
             partial: Dict[str, pd.DataFrame] = parser.run_pipeline(**kwargs)
         except Exception as exc:
             print(f"[Aggregator] WARNING — {parser_name} raised: {exc}")
@@ -73,7 +93,7 @@ def run_aggregator(
             sq_buckets[sq_label].append(df)
             print(f"[Aggregator]   collected {sq_label} ({len(df)} rows)")
 
-    # Merge and write one file per SQ
+    # Merge and write one final file per SQ
     result: Dict[str, pd.DataFrame] = {}
 
     print("\n[Aggregator] Merging SQ groups ...")
@@ -102,9 +122,11 @@ def run_aggregator(
 
 if __name__ == "__main__":
     results = run_aggregator(
-        crop_id     = 4,
-        input_level = InputLevel.INTERMEDIATE,
-        output_dir  = "engines/edaphic_crop_reqs/results",
+        crop_id              = 4,
+        input_level          = InputLevel.INTERMEDIATE,
+        ph_report            = 6.0,
+        texture_class_report = "fine",
+        output_dir           = "engines/edaphic_crop_reqs/results",
     )
 
     # Spot-check: print the head of every merged SQ

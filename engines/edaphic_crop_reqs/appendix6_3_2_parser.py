@@ -124,10 +124,11 @@ def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> Attri
 # ---------------------------------------------------------------------------
 
 def run_pipeline(
-    csv_path:    str,
-    crop_id:     int,
-    input_level: InputLevel,
-    output_dir:  str = ".",
+    csv_path:     str,
+    crop_id:      int,
+    input_level:  InputLevel,
+    output_dir:   str  = ".",
+    write_output: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Full pipeline:
@@ -136,7 +137,12 @@ def run_pipeline(
       3. Filter blocks by input_level
       4. Group by SQ
       5. Build AttributePairs and DataFrames per SQ
-      6. Write one CSV per SQ
+      6. Optionally write one CSV per SQ (write_output=True)
+
+    Parameters
+    ----------
+    write_output : write CSVs when True (default False so the aggregator
+                   does not produce intermediate files)
 
     Returns a dict of {sq_label: DataFrame} for inspection.
     """
@@ -159,9 +165,10 @@ def run_pipeline(
     result: Dict[str, pd.DataFrame] = {}
     for sq_label, pairs in sorted(sq_groups.items()):
         sq_df = generate_sq_df([attribute_pairs_to_df([p]) for p in pairs])
-        write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+        if write_output:
+            write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+            print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
         result[sq_label] = sq_df
-        print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
 
     return result
 
@@ -172,8 +179,9 @@ def run_pipeline(
 
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path    = "engines/edaphic_crop_reqs/appendixes/appendix6_3_2.csv",
-        crop_id     = 4,
-        input_level = InputLevel.INTERMEDIATE,
-        output_dir  = "engines/edaphic_crop_reqs/results",
+        csv_path     = "engines/edaphic_crop_reqs/appendixes/appendix6_3_2.csv",
+        crop_id      = 4,
+        input_level  = InputLevel.INTERMEDIATE,
+        output_dir   = "engines/edaphic_crop_reqs/results",
+        write_output = True,
     )

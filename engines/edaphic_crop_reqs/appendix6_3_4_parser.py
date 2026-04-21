@@ -194,9 +194,10 @@ def build_attribute_pair(block: SoilPhaseBlock, crop_id: int) -> AttributePair:
 # ---------------------------------------------------------------------------
 
 def run_pipeline(
-    csv_path:   str,
-    crop_id:    int,
-    output_dir: str = ".",
+    csv_path:    str,
+    crop_id:     int,
+    output_dir:  str  = ".",
+    write_output: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Full pipeline:
@@ -204,11 +205,16 @@ def run_pipeline(
       2. Extract all blocks for crop_id  (input level auto-detected from title)
       3. Group by SQ
       4. Build AttributePairs and DataFrames per SQ
-      5. Write one CSV per SQ
+      5. Optionally write one CSV per SQ (write_output=True)
 
     The input level is deduced automatically from the table title embedded in
     the CSV (e.g. "High Input Farming" → InputLevel.HIGH).  It does not need
     to be supplied by the caller.
+
+    Parameters
+    ----------
+    write_output : write CSVs when True (default False so the aggregator
+                   does not produce intermediate files)
 
     Returns a dict of {sq_label: DataFrame} for inspection.
 
@@ -235,12 +241,12 @@ def run_pipeline(
     result: Dict[str, pd.DataFrame] = {}
     for sq_label, pairs in sorted(sq_groups.items()):
         sq_df = generate_sq_df([attribute_pairs_to_df([p]) for p in pairs])
-        write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+        if write_output:
+            write_sq_df_to_csv(sq_df, f"{output_dir}/{sq_label}.csv")
+            print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
         result[sq_label] = sq_df
-        print(f"Written {sq_label}.csv  ({len(pairs)} attributes)")
 
     return result
-
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -248,7 +254,8 @@ def run_pipeline(
 
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path   = "engines/edaphic_crop_reqs/appendixes/appendix6_3_4.csv",
-        crop_id    = 4,
-        output_dir = "engines/edaphic_crop_reqs/results",
+        csv_path     = "engines/edaphic_crop_reqs/appendixes/appendix6_3_4.csv",
+        crop_id      = 4,
+        output_dir   = "engines/edaphic_crop_reqs/results",
+        write_output = True,
     )
