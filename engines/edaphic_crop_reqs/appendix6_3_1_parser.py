@@ -6,11 +6,12 @@ from typing import Dict, Iterator, List
 
 import pandas as pd
 
-from engines.edaphic_crop_reqs.constants import ATTR_ABBREV_MAP, CROPS
+from engines.edaphic_crop_reqs.constants import ATTR_ABBREV_MAP, CROPS_RAINFED_SPRINKLER
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
 from engines.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
     generate_sq_df,
+    validate_and_get_row_idx,
     parse_input_levels,
     parse_sq_labels,
     write_sq_df_to_csv,
@@ -25,8 +26,10 @@ INPUT_LEVEL_ROW = 4   # input level text
 CONSTRAINT_ROW  = 5   # short labels encoding attribute abbrev + penalty
 DATA_START_ROW  = 7   # first crop data row
 
-BLOCK_START_COL = 2   # first data column (0-based)
+BLOCK_START_COL = 2  # first data column (0-based)
 BLOCK_WIDTH     = 6   # columns per block
+
+CROP_IDX_COL= 1
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +87,7 @@ def select_ph_curve(
 # Block extraction
 # ---------------------------------------------------------------------------
 
-def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBlock]:
+def extract_blocks(df: pd.DataFrame, crop_id: int,CROPS) -> List[SoilCharacteristicsBlock]:
     """
     Parse all 6-column blocks from the Appendix 6.3.1 DataFrame.
     Attaches thresholds for the given crop_id.
@@ -92,8 +95,8 @@ def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBl
     if crop_id not in CROPS:
         raise ValueError(f"crop_id {crop_id} not found")
 
-    crop_row_idx = CROPS[crop_id]["row"] - 1   # convert 1-based Excel row to 0-based
-
+    crop_row_idx = validate_and_get_row_idx(df, CROP_IDX_COL, crop_id, CROPS)    
+    
     blocks: List[SoilCharacteristicsBlock] = []
     total_cols = df.shape[1]
 
@@ -205,6 +208,7 @@ def run_pipeline(
     crop_id:      int,
     input_level:  InputLevel,
     ph_report:    float,
+    crops,
     output_dir:   str  = ".",
     write_output: bool = False,
 ) -> Dict[str, pd.DataFrame]:
@@ -230,7 +234,7 @@ def run_pipeline(
     df = pd.read_csv(csv_path, header=None)
 
     # Step 1: extract all blocks for this crop
-    all_blocks = extract_blocks(df, crop_id)
+    all_blocks = extract_blocks(df, crop_id,crops)
 
     # Step 2: filter by input level
     filtered_blocks = list(filter_blocks_by_input_level(all_blocks, input_level))
@@ -263,8 +267,9 @@ def run_pipeline(
 
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path     = "engines/edaphic_crop_reqs/appendixes/appendix6_3_1.csv",
+        csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv",
         crop_id      = 1,
+        crops        = CROPS_RAINFED_SPRINKLER,
         input_level  = InputLevel.INTERMEDIATE,
         ph_report    = 6.0,
         output_dir   = "engines/edaphic_crop_reqs/results",

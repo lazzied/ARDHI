@@ -1,17 +1,16 @@
 from __future__ import annotations
-
 import re
 import pandas as pd
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, Iterator, List
-
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
 from engines.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
     generate_sq_df,
     write_sq_df_to_csv,
 )
+
 
 # ---------------------------------------------------------------------------
 # Sheet layout constants (0-based row / column indices)
@@ -49,37 +48,6 @@ class SoilPhaseBlock(SoilCharacteristicsBlock):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _parse_input_level(df: pd.DataFrame) -> InputLevel:
-    """
-    Scan every row for the table title and extract the input level from it.
-
-    Looks for a cell containing the pattern  'Table A6-3.4 ... <Level> Input'
-    (e.g. 'Table A6-3.4   Soil Phase Characteristics affecting High Input Farming').
-    No fixed row index is assumed — the title row is located dynamically.
-
-    Raises ValueError if no matching row is found.
-    """
-    title_pattern    = re.compile(r"table\s+a6-3\.4", re.IGNORECASE)
-    level_pattern    = re.compile(r"\b(high|intermediate|low)\b", re.IGNORECASE)
-
-    for _, row in df.iterrows():
-        for cell in row:
-            cell_text = str(cell).strip()
-            if title_pattern.search(cell_text):
-                match = level_pattern.search(cell_text)
-                if match:
-                    level = match.group(1).lower()
-                    if level == "high":
-                        return InputLevel.HIGH
-                    if level == "intermediate":
-                        return InputLevel.INTERMEDIATE
-                    if level == "low":
-                        return InputLevel.LOW
-                raise ValueError(
-                    f"Table title found but no input level keyword detected: {cell_text!r}"
-                )
-
-    raise ValueError("Could not locate the Table A6-3.4 title row in the CSV.")
 
 
 def _resolve_crop_row(df: pd.DataFrame, crop_id: int) -> int:
@@ -95,7 +63,7 @@ def _resolve_crop_row(df: pd.DataFrame, crop_id: int) -> int:
 # Block extraction
 # ---------------------------------------------------------------------------
 
-def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilPhaseBlock]:
+def extract_blocks(df: pd.DataFrame, crop_id: int,input_level: InputLevel) -> List[SoilPhaseBlock]:
     """
     Parse one SoilPhaseBlock per SQ from the Appendix 6.3.4 DataFrame.
 
@@ -110,7 +78,6 @@ def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilPhaseBlock]:
     Columns with no soil phase name are silently dropped.
     """
     crop_row_idx = _resolve_crop_row(df, crop_id)
-    input_level  = _parse_input_level(df)
 
     blocks: List[SoilPhaseBlock] = []
 
@@ -196,6 +163,7 @@ def build_attribute_pair(block: SoilPhaseBlock, crop_id: int) -> AttributePair:
 def run_pipeline(
     csv_path:    str,
     crop_id:     int,
+    input_level:InputLevel,
     output_dir:  str  = ".",
     write_output: bool = False,
 ) -> Dict[str, pd.DataFrame]:
@@ -228,7 +196,7 @@ def run_pipeline(
     df = pd.read_csv(csv_path, header=None)
 
     # Step 1: extract all blocks for this crop (input level auto-detected inside)
-    all_blocks = extract_blocks(df, crop_id)
+    all_blocks = extract_blocks(df, crop_id,input_level)
 
     # Step 2: group by SQ
     sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)

@@ -4,13 +4,14 @@ import pandas as pd
 from collections import defaultdict
 from typing import Dict, Iterator, List
 
-from engines.edaphic_crop_reqs.constants import CROPS
+from engines.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
 from engines.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
     generate_sq_df,
     parse_input_levels,
     parse_sq_labels,
+    validate_and_get_row_idx,
     write_sq_df_to_csv,
 )
 
@@ -27,12 +28,13 @@ BLOCK_WIDTH     = 13  # columns per block
 
 ATTRIBUTE_NAME  = "TXT"
 
+CROP_IDX_COL= 1
 
 # ---------------------------------------------------------------------------
 # Block extraction
 # ---------------------------------------------------------------------------
 
-def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBlock]:
+def extract_blocks(df: pd.DataFrame, crop_id: int, crops) -> List[SoilCharacteristicsBlock]:
     """
     Parse all 13-column blocks from the Appendix 6.3.2 DataFrame.
 
@@ -43,10 +45,10 @@ def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBl
     Row ATTRIBUTE_ROW   : texture class names  → thresholds
     Rows DATA_START_ROW+: penalty matrix; the row matching crop_id → penalties
     """
-    if crop_id not in CROPS:
+    if crop_id not in crops:
         raise ValueError(f"crop_id {crop_id} not found")
 
-    crop_row_idx = CROPS[crop_id]["row"] - 1   # convert 1-based Excel row to 0-based
+    crop_row_idx = validate_and_get_row_idx(df, CROP_IDX_COL, crop_id, crops)    
 
     blocks: List[SoilCharacteristicsBlock] = []
     total_cols = df.shape[1]
@@ -127,6 +129,7 @@ def run_pipeline(
     csv_path:     str,
     crop_id:      int,
     input_level:  InputLevel,
+    crops,
     output_dir:   str  = ".",
     write_output: bool = False,
 ) -> Dict[str, pd.DataFrame]:
@@ -149,7 +152,7 @@ def run_pipeline(
     df = pd.read_csv(csv_path, header=None)
 
     # Step 1: extract all blocks for this crop
-    all_blocks = extract_blocks(df, crop_id)
+    all_blocks = extract_blocks(df, crop_id,crops)
 
     # Step 2: filter by input level
     filtered_blocks = list(filter_blocks_by_input_level(all_blocks, input_level))
@@ -179,9 +182,10 @@ def run_pipeline(
 
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path     = "engines/edaphic_crop_reqs/appendixes/appendix6_3_2.csv",
+        csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv",
         crop_id      = 4,
         input_level  = InputLevel.INTERMEDIATE,
+        crops        = CROPS_RAINFED_SPRINKLER,
         output_dir   = "engines/edaphic_crop_reqs/results",
         write_output = True,
     )

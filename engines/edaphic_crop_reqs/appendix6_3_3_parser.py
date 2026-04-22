@@ -4,12 +4,15 @@ import pandas as pd
 from collections import defaultdict
 from typing import Dict, Iterator, List
 
-from engines.edaphic_crop_reqs.constants import CROPS
+from engines.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
 from engines.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
     generate_sq_df,
+
     parse_input_levels,
+    validate_and_get_row_idx,
+    validate_and_get_row_idx,
     write_sq_df_to_csv,
 )
 
@@ -28,6 +31,8 @@ ATTRIBUTE_NAME     = "DRG"   # unified output name after texture selection
 ATTRIBUTE_PREFIX   = "DRG"   # base name used internally; suffixed with texture group
 FIXED_SQ           = "SQ4"   # Appendix 6.3.3 always maps to SQ4
 
+CROP_IDX_COL= 1
+
 # Mapping from full drainage class label → short code used in _val output
 DRG_CODE_MAP: Dict[str, str] = {
     "Very Poor":          "VP",
@@ -44,7 +49,7 @@ DRG_CODE_MAP: Dict[str, str] = {
 # Block extraction
 # ---------------------------------------------------------------------------
 
-def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBlock]:
+def extract_blocks(df: pd.DataFrame, crop_id: int,crops) -> List[SoilCharacteristicsBlock]:
     """
     Parse all 7-column blocks from the Appendix 6.3.3 DataFrame.
 
@@ -60,10 +65,10 @@ def extract_blocks(df: pd.DataFrame, crop_id: int) -> List[SoilCharacteristicsBl
     e.g. "Fine textures" → "DRG_Fine".  Drainage class labels are stored as
     full strings; short-code conversion happens at pipeline time.
     """
-    if crop_id not in CROPS:
+    if crop_id not in crops:
         raise ValueError(f"crop_id {crop_id} not found")
 
-    crop_row_idx = CROPS[crop_id]["row"] - 1   # convert 1-based Excel row to 0-based
+    crop_row_idx = validate_and_get_row_idx(df, CROP_IDX_COL, crop_id, crops)    
 
     blocks: List[SoilCharacteristicsBlock] = []
     total_cols = df.shape[1]
@@ -190,6 +195,7 @@ def run_pipeline(
     crop_id:              int,
     input_level:          InputLevel,
     texture_class_report: str,
+    crops,
     output_dir:           str  = ".",
     write_output:         bool = False,
 ) -> Dict[str, pd.DataFrame]:
@@ -217,7 +223,7 @@ def run_pipeline(
     df = pd.read_csv(csv_path, header=None)
 
     # Step 1: extract all blocks for this crop
-    all_blocks = extract_blocks(df, crop_id)
+    all_blocks = extract_blocks(df, crop_id,crops)
 
     # Step 2: filter by input level
     filtered_blocks = list(filter_blocks_by_input_level(all_blocks, input_level))
@@ -253,6 +259,7 @@ if __name__ == "__main__":
         crop_id              = 4,
         input_level          = InputLevel.INTERMEDIATE,
         texture_class_report = "fine",
+        crops                = CROPS_RAINFED_SPRINKLER,
         output_dir           = "engines/edaphic_crop_reqs/results",
         write_output         = True,
     )
