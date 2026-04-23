@@ -2,17 +2,30 @@
 from __future__ import annotations
 from typing import List
 
+import rasterio
+
 from engines.report_augmentation.models_and_io import AugmentedLayer, FarmerReportParser, HWSDRepository
 from engines.report_augmentation.output import ExcelExporter, ProvenanceLogger
 from engines.report_augmentation.processing import AttributeProcessor, LayerInterpolator
 
+def get_smu(raster_path: str, lat: float, lon: float) -> int:
+    """Raster pixel at (lat, lon) → SMU ID."""
+    src = rasterio.open(raster_path)
+    row, col = src.index(lon, lat)
+    # Read just one pixel, not the whole raster
+    window = rasterio.windows.Window(col, row, 1, 1)
+    smu_id = src.read(1, window=window)[0, 0]
+    return int(smu_id)
 
-HWSD_DB_PATH  = "/mnt/user-data/uploads/hwsd.db"
-REPORT_PATH   = "/mnt/user-data/uploads/rapport_values.json"
-HWSD_SMU_ID   = 31816          # ← change to match your field
-OUTPUT_PATH   = "/mnt/user-data/outputs/soil_augmentation_output.xlsx"
-LOG_CSV_PATH  = "/mnt/user-data/outputs/soil_augmentation_log.csv"
-LOG_JSON_PATH = "/mnt/user-data/outputs/soil_augmentation_log.json"
+FARM_COORDINATES = (35.0, 9.0)
+RASTER_PATH = "hwsd_data/hwsd2_smu_tunisia.tif"
+HWSD_SMU_ID   = get_smu(RASTER_PATH, *FARM_COORDINATES)
+
+HWSD_DB_PATH  = "hwsd.db"
+REPORT_PATH   = "engines/report_augmentation/rapport_values.json"
+OUTPUT_PATH   = "engines/report_augmentation/results/soil_augmentation_output.xlsx"
+LOG_CSV_PATH  = "engines/report_augmentation/results/soil_augmentation_log.csv"
+LOG_JSON_PATH = "engines/report_augmentation/results/soil_augmentation_log.json"
 
 
 
@@ -67,7 +80,7 @@ class SoilAugmentationPipeline:
         # D1 — fully farmer-enriched
         d1_hw = layer_map["D1"]
         d1_v, d1_f = self._processor.process(report, d1_hw)
-        d1_aug = AugmentedLayer("D1", 0, 20, d1_v, d1_f)
+        d1_aug = AugmentedLayer("D1", 0, 20, d1_v, d1_f, smu_id)
         output.append(d1_aug)
         self._logger.record("0-20", d1_aug)
         print("      D1  (0-20 cm)   → farmer-enriched")
@@ -76,7 +89,7 @@ class SoilAugmentationPipeline:
         if "D2" in layer_map:
             d2_hw      = layer_map["D2"]
             d2_v, d2_f = self._processor.process(report, d2_hw)
-            d2_raw     = AugmentedLayer("D2", 20, 40, d2_v, d2_f)
+            d2_raw     = AugmentedLayer("D2", 20, 40, d2_v, d2_f, smu_id)
             d2_interp  = self._interpolator.interpolate(d1_aug, d2_raw)
             output.append(d2_interp)
             self._logger.record("20-40", d2_interp)
@@ -96,7 +109,7 @@ class SoilAugmentationPipeline:
                         f"HWSD direct | farmer data not applicable "
                         f"at depth {hw.top_dep}-{hw.bot_dep}cm"
                     )
-            aug = AugmentedLayer(code, hw.top_dep, hw.bot_dep, vals, flags)
+            aug = AugmentedLayer(code, hw.top_dep, hw.bot_dep, vals, flags, smu_id)
             output.append(aug)
             self._logger.record(f"{hw.top_dep}-{hw.bot_dep}", aug)
             print(f"      {code}  ({hw.top_dep}-{hw.bot_dep} cm) → HWSD direct")

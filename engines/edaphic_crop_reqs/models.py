@@ -42,5 +42,4 @@ class SoilCharacteristicsBlock:
     input_levels:   List[InputLevel]
     penalties:      List[float]     # e.g. [100, 90, 70, 50, 30, 10]
     thresholds_row: List[float | str]     # raw crop values for the selected crop
-    attribute_pairs: List[AttributePair] = field(default_factory=list)
 

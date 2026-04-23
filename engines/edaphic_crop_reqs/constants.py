@@ -126,22 +126,26 @@ CROPS_DRIP_IRRIGATION: dict[int, dict] = {
 }
 
 HEADER_TO_ATTRIBUTE = {
-    "Soil Organic Carbon": "OC",
-    "Soil Reaction": "pH",
-    "Total Exchangeable Bases": "TEB",
-    "Base Saturation": "BS",
-    "Cation Exchange Capacity Soil": "CECsoil",
-    "Cation Exchange Capacity of Clay": "CECclay",
-    "Rooting/Soil Depth": "RSD",
-    "Rooting/Soil Depth - D": "RSD",
-    "Coarse Fragments": "GRC",
-    "Electric Conductivity": "EC",
-    "Exchangeable Sodium Percentage": "ESP",
-    "Calcium Carbonate": "CCB",
-    "Calcium Sulphate": "GYP",
-    "Vertic Soils Properties": "VSP",
-    "Gelic Soil Properties": "GRC",  # adjust if needed
+    "Soil Organic Carbon (SOC % weight)": "OC",
+    "Soil Reaction (pHH2O)": "pH",
+    "Total Exchangeable Bases (TEB)": "TEB",
+    "Cation Exchange Capacity of Clay (CECclay)": "CECclay",
+    "Base Saturation (BS)": "BS",
+    "Rooting / Soil Depth": "RSD",
+    "Electrical Conductivity (EC)": "EC",
+    "Coarse Fragments (CF)": "CF",
+    "Exchangeable Sodium Percentage (ESP)": "ESP",
+    "Calcium Carbonate (CCB)": "CCB",
+    "Calcium Sulphate (GYP)": "GYP",
+    "Vertic Soil Properties": "VSP",
+    "Cation Exchange Capacity Soil (CECsoil)": "CECsoil",
+    "Gelic Soil Properties": "GSP",
+    "Soil Texture Classes": "TXT",
+    "Drainage Class": "DRG",
+    "Soil Phase": "SPH",
 }
+
+
 SPECIAL_ATTRIBUTES = {
     "Soil Texture Classes": "TXT",
     "Drainage Class": "DRG",
@@ -206,18 +210,18 @@ ATTRIBUTE_VALUES = {
 # Maps abbreviated attribute labels in constraint class row to short names
 # used in the output (matching the reference maiz file)
 ATTR_ABBREV_MAP: dict[str, str] = {
-    "SOC":  "OC",
-    "pH":   "pH",
-    "TEB":  "TEB",
-    "CECa": "CECclay",
-    "BS":   "BS",
-    "RC":   "RSD",
-    "CF":   "GRC",
-    "EC":   "EC",
-    "ESP":  "ESP",
-    "CCB":  "CCB",
-    "GYP":  "GYP",
-    "V":    "VSP",
-    "CECs": "CECsoil",
-    "G":    "GEL",
+    "SOC": "OC",        # Soil Organic Carbon
+    "pH": "pH",         # same
+    "TEB": "TEB",       # same
+    "CECa": "CECclay",  # CEC of clay
+    "BS": "BS",         # same
+    "RC": "RSD",        # Rooting Conditions → Rooting/Soil Depth
+    "CF": "CF",         # same (fixed from old GRC confusion)
+    "EC": "EC",         # same
+    "ESP": "ESP",       # same
+    "CCB": "CCB",       # same
+    "GYP": "GYP",       # same
+    "V": "VSP",         # Vertic → Vertic Soil Properties
+    "CECs": "CECsoil",  # soil-level CEC
+    "G": "GSP",         # Gelic → Gelic Soil Properties
 }

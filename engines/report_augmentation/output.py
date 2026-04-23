@@ -135,7 +135,7 @@ class ExcelExporter:
             attributes = list(layer.values.keys())
 
             # Row 1 — label cell + attribute headers
-            label_cell = ws.cell(row=1, column=1, value="")
+            label_cell = ws.cell(row=1, column=1, value="CODE")
             label_cell.fill   = label_fill
             label_cell.border = thin_border
 
@@ -147,7 +147,7 @@ class ExcelExporter:
                 c.border    = thin_border
 
             # Row 2 — "Value" label + data cells
-            row_label = ws.cell(row=2, column=1, value="Value")
+            row_label = ws.cell(row=2, column=1, value=layer.smu_id)
             row_label.font      = label_font
             row_label.fill      = label_fill
             row_label.alignment = center

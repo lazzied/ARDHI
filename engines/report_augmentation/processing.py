@@ -55,7 +55,7 @@ class AugStrategy(AttributeStrategy):
             return dec, f"AUG | HWSD DRAINAGE={raw} → {dec}"
         if attr == "GYP":
             return round(hwsd.gypsum or 0, 4), f"AUG | HWSD GYPSUM={hwsd.gypsum} % wt"
-        if attr == "GRC":
+        if attr == "CF":
             return hwsd.coarse, f"AUG | HWSD COARSE={hwsd.coarse} % vol"
         return None, f"AUG: no handler for {attr}"
 
@@ -66,10 +66,10 @@ class CalcStrategy(AttributeStrategy):
     def compute(self, attr, report, hwsd, repo, context):
 
         if attr == "TEB":
-            ca = report.Ca_exch / 0.2004
-            mg = report.Mg_exch / 0.1216
-            k  = report.K_exch  / 0.391
-            na = report.Na_exch  / 0.2299
+            ca = (report.Ca_exch / 40.08) * 2 * 10   # Ca²⁺, atomic mass 40.08
+            mg = (report.Mg_exch / 24.31) * 2 * 10   # Mg²⁺, atomic mass 24.31
+            k  = (report.K_exch  / 39.10) * 1 * 10   # K⁺,   atomic mass 39.10
+            na = (report.Na_exch  / 22.99) * 1 * 10  # Na⁺,  atomic mass 22.99
             teb_farmer = round(ca + mg + k + na, 3)
             teb_hwsd   = hwsd.teb
 
@@ -97,17 +97,19 @@ class CalcStrategy(AttributeStrategy):
             oc   = report.OC
             cec  = round(0.57 * clay + 3.58 * oc, 3)
             context["CECsoil"] = cec
-            return cec, (
-                f"CALC | Bell&VanKeulen(1995): 0.57×{clay}+3.58×{oc}={cec} cmolc/kg "
-                f"| SSSAJ 59:865 (1995)"
-            )
+            note = (f"CALC | Bell&VanKeulen(1995): 0.57×{clay}+3.58×{oc}={cec} cmolc/kg ...")
+            hwsd_cec = hwsd.cec_soil
+            if hwsd_cec and abs(cec - hwsd_cec) / max(hwsd_cec, 1e-9) > 0.30:
+                note += (f" | ⚠ HWSD CEC_SOIL={hwsd_cec} cmolc/kg, divergence=...% >30%")
+            return cec, note
 
         if attr == "CECclay":
             cec_s = context.get("CECsoil") or 0
             oc    = report.OC
             clay  = (hwsd.clay or 20.0) / 100.0
             if clay > 0:
-                cec_c = round((cec_s - (oc / 100.0) * 200.0) / clay, 3)
+                om_frac = (oc * 1.724) / 100.0   # Van Bemmelen: OC -> OM fraction
+                cec_c = round((cec_s - om_frac * 200.0) / clay, 3)
                 note  = (
                     f"CALC | FAO HWSD §4: ({cec_s}−({oc}/100)×200)/{clay:.2f}"
                     f"={cec_c} cmolc/kg | FAO Soils Bulletin 52"
@@ -132,7 +134,7 @@ class CalcStrategy(AttributeStrategy):
             return bs, note
 
         if attr == "ESP":
-            na_cmolc = report.Na_exch / 0.2299
+            na_cmolc = (report.Na_exch / 22.99) * 1 * 10
             cecs     = context.get("CECsoil") or 1
             esp      = round(min(100.0 * na_cmolc / cecs, 100.0), 2)
             return esp, (
@@ -161,6 +163,13 @@ class CalcStrategy(AttributeStrategy):
             else:                          critical_bd = 1.65
             spr = 0 if bd < critical_bd else 1
             context["SPR"] = spr
+            """
+            note = (f"CALC | BD={bd} g/cm³ ...")
+            if oc < 2.0:
+                note += (f" | warning: OC={oc}% <2%, Adams(1973) extrapolated beyond calibration range for mineral soils")
+            return spr, note
+                    
+            """
             return spr, (
                 f"CALC | BD={bd} g/cm³ (Adams 1973; OC={oc}%), "
                 f"critical={critical_bd} g/cm³ (TXT_USDA={txt}), SPR={spr} "
@@ -199,8 +208,16 @@ class CalcStrategy(AttributeStrategy):
                 f"VSP={vsp} | ⚠ slope unavailable — K-factor only (no LS term)"
             )
 
-        return None, f"CALC: no handler for {attr}"
+        if attr == "GSP":
+            ph1 = repo.decode_phase(hwsd.phase1)
+            ph2 = repo.decode_phase(hwsd.phase2)
+            COARSE_PHASES = {"Skeletic", "Lithic", "Stony", "Gravelly", "Bouldery", "Petroferric"}
+            active = {ph1, ph2} - {"None"}
+            gsp = 1 if any(p in COARSE_PHASES for p in active) else 0
+            return gsp, (f"CALC | PHASE1={ph1}, PHASE2={ph2} -> GSP={gsp} | ...")
 
+        return None, f"CALC: no handler for {attr}"
+    
 ATTRIBUTE_ORDER: List[tuple[str, AttributeStrategy]] = [
     ("OC",      ReadStrategy()),
     ("pH",      ReadStrategy()),
@@ -210,7 +227,7 @@ ATTRIBUTE_ORDER: List[tuple[str, AttributeStrategy]] = [
     ("RSD",     AugStrategy()),
     ("DRG",     AugStrategy()),
     ("GYP",     AugStrategy()),
-    ("GRC",     AugStrategy()),
+    ("CF",     AugStrategy()),
     ("TEB",     CalcStrategy()),
     ("CECsoil", CalcStrategy()),
     ("CECclay", CalcStrategy()),
@@ -219,6 +236,7 @@ ATTRIBUTE_ORDER: List[tuple[str, AttributeStrategy]] = [
     ("OSD",     CalcStrategy()),
     ("SPR",     CalcStrategy()),
     ("SPH",     CalcStrategy()),
+    ("GSP",     CalcStrategy()),
     ("VSP",     CalcStrategy()),
 ]
 
@@ -248,7 +266,7 @@ class AttributeProcessor:
 # ===========================================================================
 
 class LayerInterpolator:
-    CATEGORICAL = {"TXT", "DRG", "RSD", "OSD", "SPR", "SPH", "VSP"}
+    CATEGORICAL = {"TXT", "DRG", "RSD", "OSD", "SPR", "SPH", "VSP", "CF", "GSP"}
 
     def interpolate(
         self, d1: AugmentedLayer, d2_hwsd: AugmentedLayer,
@@ -278,5 +296,4 @@ class LayerInterpolator:
                 values[attr] = v1
                 flags[attr]  = f"INTERP | D2 missing → D1 enriched ({v1})"
 
-        return AugmentedLayer("D2", d2_hwsd.top_dep, d2_hwsd.bot_dep, values, flags)
-
+        return AugmentedLayer("D2", d2_hwsd.top_dep, d2_hwsd.bot_dep, values, flags, d2_hwsd.smu_id)

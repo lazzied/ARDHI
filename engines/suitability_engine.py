@@ -513,18 +513,24 @@ if __name__ == "__main__":
     )
 
     lat, lon = 36.72, 9.68
+    
+    #engine.recommend(lat, lon, input_level="HRLM")
+    print_recommendation(engine.recommend(lat, lon, input_level="HRLM"), top_n=30)  # shows all if fewer than 15 suitable
+    
 
     # Single input level — use top_n() on the result
     #result = engine.recommend(lat, lon, input_level="HRLM")
     #print_recommendation(result, top_n=30)      # shows all if fewer than 15 suitable
 
     # Compare best crop across all input levels
-    all_results = engine.recommend_all_inputs(lat, lon)
-    print_comparison(all_results)
+    #all_results = engine.recommend_all_inputs(lat, lon)
+    #print_comparison(all_results)
 
     # Full research — every crop, every input level, no cutoff
-    full = engine.recommend_all_inputs_full(lat, lon)
-    print_full_research(full)                   # all suitable crops
+    #full = engine.recommend_all_inputs_full(lat, lon)
+    #print_full_research(full)                   # all suitable crops
     #print_full_research(full, top_n=5)          # top 5 per input level
 
     engine.close()
+    
+    #engines\suitability_engine.py

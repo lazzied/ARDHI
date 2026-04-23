@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from dbm import sqlite3
+import sqlite3
 import json
 from typing import Any, Dict, List, Optional
 
@@ -61,6 +61,7 @@ class AugmentedLayer:
     bot_dep:  int
     values:   Dict[str, Any]
     flags:    Dict[str, str]
+    smu_id:   int = 0
     
     
 class FarmerReportParser:

@@ -4,6 +4,7 @@ import pandas as pd
 from collections import defaultdict
 from typing import Dict, List
 
+from engines.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
 from engines.edaphic_crop_reqs.models import InputLevel
 from engines.edaphic_crop_reqs.utils_functions import write_sq_df_to_csv
 
@@ -24,7 +25,9 @@ PARSER_REGISTRY = [
     (parser_1, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv", True),
     (parser_2, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv", True),
     (parser_3, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.3.csv", True),
-    (parser_4, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv", False),
+    (parser_4, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv", InputLevel.HIGH),
+    (parser_4, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.5.csv", InputLevel.INTERMEDIATE),
+    (parser_4, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.6.csv", InputLevel.LOW),
 ]
 
 ALL_SQ_LABELS = [f"SQ{i}" for i in range(1, 8)]   # SQ1 … SQ7
@@ -35,6 +38,7 @@ ALL_SQ_LABELS = [f"SQ{i}" for i in range(1, 8)]   # SQ1 … SQ7
 # ---------------------------------------------------------------------------
 
 def run_aggregator(
+    crops:                dict[int, dict],
     crop_id:              int,
     input_level:          InputLevel,
     ph_report:            float,
@@ -67,7 +71,14 @@ def run_aggregator(
  
     # Accumulate DataFrames per SQ across all parsers
     sq_buckets: Dict[str, List[pd.DataFrame]] = defaultdict(list)
- 
+    
+    VALID_TEXTURES = {"fine", "medium", "coarse"}
+    if texture_class_report.strip().lower() not in VALID_TEXTURES:
+        raise ValueError(
+            f"Invalid texture_class_report {texture_class_report!r}. "
+            f"Must be one of: {VALID_TEXTURES}"
+        )
+        
     for parser, csv_path, needs_input_level in PARSER_REGISTRY:
         parser_name = parser.__name__.split(".")[-1]
         full_name   = parser.__name__
@@ -77,11 +88,21 @@ def run_aggregator(
             kwargs = dict(
                 csv_path     = csv_path,
                 crop_id      = crop_id,
+                crops        = crops,
                 output_dir   = output_dir,
                 write_output = False,   # parsers never write intermediate files
             )
-            if needs_input_level:
+            if needs_input_level is True:
+            # Parser handles all levels or requires the current level as a parameter
                 kwargs["input_level"] = input_level
+            elif needs_input_level == input_level:
+                # Registry level matches the user request (e.g., HIGH == HIGH)
+                kwargs["input_level"] = input_level
+            else:
+                # Registry level is for a different input (e.g., LOW while user wants HIGH)
+                print(f"[Aggregator]   skipping {parser_name} (Level mismatch)")
+                continue
+            
             kwargs.update(EXTRA_KWARGS.get(full_name, {}))
  
             partial: Dict[str, pd.DataFrame] = parser.run_pipeline(**kwargs)
@@ -126,6 +147,7 @@ def run_aggregator(
 
 if __name__ == "__main__":
     results = run_aggregator(
+        crops = CROPS_RAINFED_SPRINKLER,
         crop_id              = 4,
         input_level          = InputLevel.INTERMEDIATE,
         ph_report            = 6.0,

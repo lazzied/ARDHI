@@ -4,10 +4,12 @@ import pandas as pd
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, Iterator, List
+from engines.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
 from engines.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
     generate_sq_df,
+    validate_and_get_row_idx,
     write_sq_df_to_csv,
 )
 
@@ -22,6 +24,7 @@ ATTRIBUTE_ROW   = 4   # Excel row 5 — soil phase names  (VAL row)
 DATA_START_ROW  = 6   # Excel row 7 — first crop data row
 
 ATTRIBUTE_NAME  = "SPH"
+CROP_IDX_COL= 0
 
 # Irregular column ranges per SQ (0-based, inclusive on both ends).
 # Slicing uses df.iloc[:, start : end + 1], so end is the last included column.
@@ -45,25 +48,10 @@ class SoilPhaseBlock(SoilCharacteristicsBlock):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-
-def _resolve_crop_row(df: pd.DataFrame, crop_id: int) -> int:
-    """Return the 0-based row index for *crop_id*, handling float/string IDs."""
-    id_col = pd.to_numeric(df.iloc[:, 0], errors="coerce")
-    matches = df.index[id_col == crop_id].tolist()
-    if not matches:
-        raise ValueError(f"crop_id {crop_id} not found in appendix 6.3.4")
-    return matches[0]
-
-
-# ---------------------------------------------------------------------------
 # Block extraction
 # ---------------------------------------------------------------------------
 
-def extract_blocks(df: pd.DataFrame, crop_id: int,input_level: InputLevel) -> List[SoilPhaseBlock]:
+def extract_blocks(df: pd.DataFrame, crop_id: int,input_level: InputLevel,crops: dict[int, dict]) -> List[SoilPhaseBlock]:
     """
     Parse one SoilPhaseBlock per SQ from the Appendix 6.3.4 DataFrame.
 
@@ -77,7 +65,7 @@ def extract_blocks(df: pd.DataFrame, crop_id: int,input_level: InputLevel) -> Li
     The input level is the same for every block (sheet-wide constant).
     Columns with no soil phase name are silently dropped.
     """
-    crop_row_idx = _resolve_crop_row(df, crop_id)
+    crop_row_idx = validate_and_get_row_idx(df, CROP_IDX_COL, crop_id, crops)    
 
     blocks: List[SoilPhaseBlock] = []
 
@@ -90,11 +78,14 @@ def extract_blocks(df: pd.DataFrame, crop_id: int,input_level: InputLevel) -> Li
 
         thresholds = block_slice.iloc[ATTRIBUTE_ROW].fillna("").astype(str).str.strip().tolist()
         shares     = block_slice.iloc[SHARE_ROW].fillna("").astype(str).str.strip().tolist()
+        SENTINEL_NOT_APPLICABLE = -999
         penalties  = (
             pd.to_numeric(df.iloc[crop_row_idx, start : actual_end + 1], errors="coerce")
             .fillna(100.0)
+            .replace(SENTINEL_NOT_APPLICABLE, 100.0)
             .tolist()
         )
+
 
         # Drop columns where no soil phase name is present
         valid_thresholds, valid_penalties, valid_shares = [], [], []
@@ -161,6 +152,7 @@ def build_attribute_pair(block: SoilPhaseBlock, crop_id: int) -> AttributePair:
 # ---------------------------------------------------------------------------
 
 def run_pipeline(
+    crops:       dict[int, dict],
     csv_path:    str,
     crop_id:     int,
     input_level:InputLevel,
@@ -196,7 +188,7 @@ def run_pipeline(
     df = pd.read_csv(csv_path, header=None)
 
     # Step 1: extract all blocks for this crop (input level auto-detected inside)
-    all_blocks = extract_blocks(df, crop_id,input_level)
+    all_blocks = extract_blocks(df, crop_id,input_level,crops)
 
     # Step 2: group by SQ
     sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)
@@ -222,7 +214,9 @@ def run_pipeline(
 
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path     = "engines/edaphic_crop_reqs/appendixes/appendix6_3_4.csv",
+        crops = CROPS_RAINFED_SPRINKLER,
+        csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv",
+        input_level = InputLevel.HIGH,
         crop_id      = 4,
         output_dir   = "engines/edaphic_crop_reqs/results",
         write_output = True,

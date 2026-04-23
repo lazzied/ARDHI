@@ -31,7 +31,7 @@ ATTRIBUTE_NAME     = "DRG"   # unified output name after texture selection
 ATTRIBUTE_PREFIX   = "DRG"   # base name used internally; suffixed with texture group
 FIXED_SQ           = "SQ4"   # Appendix 6.3.3 always maps to SQ4
 
-CROP_IDX_COL= 1
+CROP_IDX_COL= 0
 
 # Mapping from full drainage class label → short code used in _val output
 DRG_CODE_MAP: Dict[str, str] = {

@@ -28,7 +28,7 @@ BLOCK_WIDTH     = 13  # columns per block
 
 ATTRIBUTE_NAME  = "TXT"
 
-CROP_IDX_COL= 1
+CROP_IDX_COL= 0
 
 # ---------------------------------------------------------------------------
 # Block extraction
@@ -128,8 +128,8 @@ def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> Attri
 def run_pipeline(
     csv_path:     str,
     crop_id:      int,
+    crops:       dict[int, dict],
     input_level:  InputLevel,
-    crops,
     output_dir:   str  = ".",
     write_output: bool = False,
 ) -> Dict[str, pd.DataFrame]:
@@ -184,8 +184,8 @@ if __name__ == "__main__":
     results = run_pipeline(
         csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv",
         crop_id      = 4,
-        input_level  = InputLevel.INTERMEDIATE,
         crops        = CROPS_RAINFED_SPRINKLER,
+        input_level  = InputLevel.INTERMEDIATE,
         output_dir   = "engines/edaphic_crop_reqs/results",
         write_output = True,
     )

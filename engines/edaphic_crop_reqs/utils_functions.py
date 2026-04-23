@@ -44,7 +44,7 @@ def validate_and_get_row_idx(
     if crop_id not in crops_registry:
         raise ValueError(f"Crop ID {crop_id} not found in the reference CROPS dictionary.")
     
-    expected_name = crops_registry[crop_id]["name"].strip().lower()
+    expected_name = crops_registry[crop_id]["name"].strip().lower().replace("_", " ")
 
     # 2. Find matches in the DataFrame
     # Note: Using astype(str) to ensure comparison works regardless of dtypes
@@ -68,7 +68,7 @@ def validate_and_get_row_idx(
     if col_idx_name >= len(df.columns):
         raise IndexError(f"No column exists to the right of '{col}' to verify crop name.")
 
-    df_crop_name = str(df.iloc[row_idx, col_idx_name]).strip().lower()
+    df_crop_name = str(df.iloc[row_idx, col_idx_name]).strip().lower().replace("_", " ")
 
     # 4. Validate name matching (case-insensitive)
     if df_crop_name != expected_name:

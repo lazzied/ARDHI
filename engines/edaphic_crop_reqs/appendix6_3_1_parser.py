@@ -6,7 +6,7 @@ from typing import Dict, Iterator, List
 
 import pandas as pd
 
-from engines.edaphic_crop_reqs.constants import ATTR_ABBREV_MAP, CROPS_RAINFED_SPRINKLER
+from engines.edaphic_crop_reqs.constants import  ATTR_ABBREV_MAP, CROPS_RAINFED_SPRINKLER
 from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
 from engines.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
@@ -29,12 +29,87 @@ DATA_START_ROW  = 7   # first crop data row
 BLOCK_START_COL = 2  # first data column (0-based)
 BLOCK_WIDTH     = 6   # columns per block
 
-CROP_IDX_COL= 1
+CROP_IDX_COL= 0
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# normalize_input_level
+# ---------------------------------------------------------------------------
+
+import re
+from typing import Dict, List
+from engines.edaphic_crop_reqs.models import InputLevel
+
+
+def normalize_input_level(
+    input_level_text: str,
+    parsed_soil_qualities: List[str],
+) -> Dict[InputLevel, List[str]]:
+    
+    text = input_level_text.strip()
+
+    level_pattern = "|".join(
+        re.escape(lvl.value) for lvl in InputLevel
+    )  # e.g. "low|intermediate|high"
+
+    # Find all positions where a level keyword starts
+    level_starts = [
+        (m.start(), m.group(0).lower())
+        for m in re.finditer(rf"\b({level_pattern})\b", text, flags=re.IGNORECASE)
+    ]
+
+    if not level_starts:
+        return {}
+
+    # Slice the text into segments: each segment is from one level keyword
+    # to the start of the next (or end of string)
+    segments: List[tuple[InputLevel, str]] = []
+    for i, (start, matched_level) in enumerate(level_starts):
+        end = level_starts[i + 1][0] if i + 1 < len(level_starts) else len(text)
+        segment_text = text[start:end]
+
+        # Map the matched string to the InputLevel enum
+        try:
+            level = InputLevel(matched_level)
+        except ValueError:
+            continue  # Unknown token — skip silently
+
+        segments.append((level, segment_text))
+
+    # ------------------------------------------------------------------
+    # Step 2: For each segment, extract the SQ restriction from any
+    # parenthesised clause, e.g. "(SQ1 and SQ2)" → ["SQ1", "SQ2"].
+    # ------------------------------------------------------------------
+
+    # Normalise an SQ token: collapse internal spaces so "SQ 1" → "SQ1"
+    def _normalise_sq(raw: str) -> str:
+        return re.sub(r"\s+", "", raw.strip().upper())
+
+    result: Dict[InputLevel, List[str]] = {}
+
+    for level, segment in segments:
+        paren_match = re.search(r"\(([^)]+)\)", segment)
+
+        if paren_match:
+            # Extract SQ indices mentioned inside the parentheses
+            raw_sqs = re.findall(r"\bSQ\s*\d+\b", paren_match.group(1), flags=re.IGNORECASE)
+            restricted = [_normalise_sq(sq) for sq in raw_sqs]
+
+            # Intersect with what the SQ row actually parsed — drop phantoms
+            allowed = [sq for sq in restricted if sq in parsed_soil_qualities]
+
+            # If the intersection is empty (shouldn't happen in clean data,
+            # but guard anyway), fall back to the full SQ list
+            result[level] = allowed if allowed else list(parsed_soil_qualities)
+
+        else:
+            # No restriction — this level applies to all SQs in the block
+            result[level] = list(parsed_soil_qualities)
+
+    return result
 
 def parse_attribute_name(constraint_label: str) -> str:
     """Extract short attribute name from a constraint class label.
@@ -116,17 +191,22 @@ def extract_blocks(df: pd.DataFrame, crop_id: int,CROPS) -> List[SoilCharacteris
         attr_name  = parse_attribute_name(str(constraint_vals[0]))
         penalties  = parse_penalties_from_constraint_row([str(v) for v in constraint_vals])
         thresholds = [float(v) for v in crop_vals]
+        raw_sq     = parse_sq_labels(sq_text)
+        raw_levels = parse_input_levels(input_level_text)
 
-        blocks.append(SoilCharacteristicsBlock(
-            col_start      = col,
-            col_end        = col + BLOCK_WIDTH,
-            attribute_name = attr_name,
-            soil_qualities = parse_sq_labels(sq_text),
-            input_levels   = parse_input_levels(input_level_text),
-            penalties      = penalties,
-            thresholds_row = thresholds,
-        ))
+        level_sq_map = normalize_input_level(input_level_text, raw_sq)
 
+        for level in raw_levels:
+            effective_sqs = level_sq_map.get(level, raw_sq)
+            blocks.append(SoilCharacteristicsBlock(
+                col_start      = col,
+                col_end        = col + BLOCK_WIDTH,
+                attribute_name = attr_name,
+                soil_qualities = effective_sqs,
+                input_levels   = [level],          # one level per block
+                penalties      = penalties,
+                thresholds_row = thresholds,
+            ))
         col += BLOCK_WIDTH
 
     return blocks
@@ -206,9 +286,9 @@ def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> Attri
 def run_pipeline(
     csv_path:     str,
     crop_id:      int,
+    crops:       dict[int, dict],
     input_level:  InputLevel,
     ph_report:    float,
-    crops,
     output_dir:   str  = ".",
     write_output: bool = False,
 ) -> Dict[str, pd.DataFrame]:
@@ -232,7 +312,11 @@ def run_pipeline(
     Returns a dict of {sq_label: DataFrame} for inspection.
     """
     df = pd.read_csv(csv_path, header=None)
-
+    
+    if not (2.0 <= ph_report <= 10.5):
+        raise ValueError(
+            f"ph_report {ph_report} is outside the valid range [2.0, 10.5]."
+        )
     # Step 1: extract all blocks for this crop
     all_blocks = extract_blocks(df, crop_id,crops)
 
@@ -268,7 +352,7 @@ def run_pipeline(
 if __name__ == "__main__":
     results = run_pipeline(
         csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv",
-        crop_id      = 1,
+        crop_id      = 4,
         crops        = CROPS_RAINFED_SPRINKLER,
         input_level  = InputLevel.INTERMEDIATE,
         ph_report    = 6.0,
