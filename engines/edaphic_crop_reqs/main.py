@@ -377,6 +377,7 @@ def _run_job(job: PipelineJob) -> bool:
             csv_path     = job.csv_p4,
             crop_id      = job.crop_id,
             input_level  = job.input_level,
+            crops = job.wm.crops,
             write_output = False,
         ))
     except Exception as e:

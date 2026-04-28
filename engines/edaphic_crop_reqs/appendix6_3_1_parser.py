@@ -1,21 +1,26 @@
-from __future__ import annotations
 
+from __future__ import annotations
 import re
 from collections import defaultdict
 from typing import Dict, Iterator, List
-
 import pandas as pd
 
-from engines.edaphic_crop_reqs.constants import  ATTR_ABBREV_MAP, CROPS_RAINFED_SPRINKLER
-from engines.edaphic_crop_reqs.models import AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock
+from engines.edaphic_crop_reqs.constants import (
+    ATTR_ABBREV_MAP, CROPS_RAINFED_SPRINKLER
+)
+
+from engines.edaphic_crop_reqs.models import (
+    AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock,
+)
 from engines.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
     generate_sq_df,
-    validate_and_get_row_idx,
     parse_input_levels,
     parse_sq_labels,
+    validate_and_get_row_idx,
     write_sq_df_to_csv,
 )
+
 
 # ---------------------------------------------------------------------------
 # Sheet layout constants (0-based row / column indices)
@@ -23,107 +28,80 @@ from engines.edaphic_crop_reqs.utils_functions import (
 ATTRIBUTE_ROW   = 2   # long attribute description
 SQ_ROW          = 3   # SQ label
 INPUT_LEVEL_ROW = 4   # input level text
-CONSTRAINT_ROW  = 5   # short labels encoding attribute abbrev + penalty
+PENALTIES_ROW  = 5   # short labels encoding attribute abbrev + penalty
 DATA_START_ROW  = 7   # first crop data row
-
-BLOCK_START_COL = 2  # first data column (0-based)
+BLOCK_START_COL = 2   # first data column (0-based)
 BLOCK_WIDTH     = 6   # columns per block
+CROP_IDX_COL    = 0
 
-CROP_IDX_COL= 0
+# RSD sentinel (GAEZ "no data" marker). Kept as-is; only real numeric
+# depths are unit-converted cm -> mm below.
+_SENTINEL = 999.0
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # normalize_input_level
 # ---------------------------------------------------------------------------
 
-import re
-from typing import Dict, List
-from engines.edaphic_crop_reqs.models import InputLevel
-
-
 def normalize_input_level(
-    input_level_text: str,
-    parsed_soil_qualities: List[str],
+    input_level_text:      str,
+    SQ_list: List[str],
 ) -> Dict[InputLevel, List[str]]:
-    
     text = input_level_text.strip()
 
-    level_pattern = "|".join(
-        re.escape(lvl.value) for lvl in InputLevel
-    )  # e.g. "low|intermediate|high"
+    level_pattern = "|".join(re.escape(lvl.value) for lvl in InputLevel)
 
-    # Find all positions where a level keyword starts
     level_starts = [
         (m.start(), m.group(0).lower())
         for m in re.finditer(rf"\b({level_pattern})\b", text, flags=re.IGNORECASE)
     ]
-
     if not level_starts:
         return {}
 
-    # Slice the text into segments: each segment is from one level keyword
-    # to the start of the next (or end of string)
     segments: List[tuple[InputLevel, str]] = []
     for i, (start, matched_level) in enumerate(level_starts):
-        end = level_starts[i + 1][0] if i + 1 < len(level_starts) else len(text)
+        end          = level_starts[i + 1][0] if i + 1 < len(level_starts) else len(text)
         segment_text = text[start:end]
-
-        # Map the matched string to the InputLevel enum
         try:
             level = InputLevel(matched_level)
         except ValueError:
-            continue  # Unknown token — skip silently
-
+            continue
         segments.append((level, segment_text))
 
-    # ------------------------------------------------------------------
-    # Step 2: For each segment, extract the SQ restriction from any
-    # parenthesised clause, e.g. "(SQ1 and SQ2)" → ["SQ1", "SQ2"].
-    # ------------------------------------------------------------------
-
-    # Normalise an SQ token: collapse internal spaces so "SQ 1" → "SQ1"
     def _normalise_sq(raw: str) -> str:
         return re.sub(r"\s+", "", raw.strip().upper())
 
     result: Dict[InputLevel, List[str]] = {}
-
     for level, segment in segments:
         paren_match = re.search(r"\(([^)]+)\)", segment)
-
         if paren_match:
-            # Extract SQ indices mentioned inside the parentheses
-            raw_sqs = re.findall(r"\bSQ\s*\d+\b", paren_match.group(1), flags=re.IGNORECASE)
+            raw_sqs    = re.findall(r"\bSQ\s*\d+\b", paren_match.group(1), flags=re.IGNORECASE)
             restricted = [_normalise_sq(sq) for sq in raw_sqs]
-
-            # Intersect with what the SQ row actually parsed — drop phantoms
-            allowed = [sq for sq in restricted if sq in parsed_soil_qualities]
-
-            # If the intersection is empty (shouldn't happen in clean data,
-            # but guard anyway), fall back to the full SQ list
-            result[level] = allowed if allowed else list(parsed_soil_qualities)
-
+            allowed    = [sq for sq in restricted if sq in SQ_list]
+            result[level] = allowed if allowed else list(SQ_list)
         else:
-            # No restriction — this level applies to all SQs in the block
-            result[level] = list(parsed_soil_qualities)
-
+            result[level] = list(SQ_list)
     return result
 
-def parse_attribute_name(constraint_label: str) -> str:
-    """Extract short attribute name from a constraint class label.
-    e.g. 'I+L SOC 100' -> 'OC',  'H CECa 100' -> 'CECclay'
+
+def parse_attribute_name(penalties_label: str) -> list[str] | None:
+    """Extract the canonical attribute name from a penalties-class label.
+
+    e.g. 'I+L SOC 100' -> 'OC',   'H CECa 100' -> 'CEC_clay'.
+
+    Returns None when the abbreviation is not in ATTR_ABBREV_MAP, or the
+    mapped name is not in CANONICAL_ATTRIBUTES. Both cases cause the block
+    to be dropped upstream (e.g. Gelic blocks on Tunisia profiles).
     """
-    match = re.search(r"[A-Za-z+]+\s+([A-Za-z]+)\s+\d+", constraint_label.strip())
+    match = re.search(r"[A-Za-z+]+\s+([A-Za-z]+)\s+\d+", penalties_label.strip())
     if not match:
-        return constraint_label.strip()
+        return None
     abbrev = match.group(1)
-    return ATTR_ABBREV_MAP.get(abbrev, abbrev)
+    abbv = ATTR_ABBREV_MAP.get(abbrev)
+    return abbv if abbv else None
 
 
-def parse_penalties_from_constraint_row(labels: List[str]) -> List[float]:
-    """Extract the penalty values from constraint class labels."""
+def parse_penalties_from_PENALTIES_ROW(labels: List[str]) -> List[float]:
     penalties = []
     for label in labels:
         m = re.search(r"(\d+)$", str(label).strip())
@@ -136,13 +114,10 @@ def select_ph_curve(
     ph_report: float,
     ph_blocks: List[SoilCharacteristicsBlock],
 ) -> SoilCharacteristicsBlock:
-    """
-    Given two pH blocks for the same (SQ, input_level) — one acidic, one basic —
-    return the one whose threshold range (excluding the 999 sentinel) contains
-    ph_report.  If ph_report falls in neither range, the closer range is used.
-    """
+    """Pick the acidic or basic pH curve whose range contains ph_report,
+    falling back to the nearest mid-point when ph_report lies outside both."""
     def valid_range(block: SoilCharacteristicsBlock):
-        values = [float(v) for v in block.thresholds_row if float(v) != 999]
+        values = [float(v) for v in block.thresholds_row if float(v) != _SENTINEL]
         return min(values), max(values)
 
     for block in ph_blocks:
@@ -150,7 +125,6 @@ def select_ph_curve(
         if lo <= ph_report <= hi:
             return block
 
-    # Fallback: pick the range whose midpoint is nearest ph_report
     def midpoint(block):
         lo, hi = valid_range(block)
         return (lo + hi) / 2
@@ -159,19 +133,34 @@ def select_ph_curve(
 
 
 # ---------------------------------------------------------------------------
+# RSD unit conversion — cm -> mm  (matches augmentation module's canonical)
+# ---------------------------------------------------------------------------
+
+def _convert_rsd_to_mm(thresholds: List[float]) -> List[float]:
+    """Multiply every non-sentinel threshold by 10 (cm -> mm).
+    The GAEZ sentinel 999 is preserved unchanged so downstream lookups
+    still match the 'no data' convention."""
+    out: List[float] = []
+    for v in thresholds:
+        fv = float(v)
+        out.append(fv if fv == _SENTINEL else round(fv * 10.0, 1))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Block extraction
 # ---------------------------------------------------------------------------
 
-def extract_blocks(df: pd.DataFrame, crop_id: int,CROPS) -> List[SoilCharacteristicsBlock]:
-    """
-    Parse all 6-column blocks from the Appendix 6.3.1 DataFrame.
-    Attaches thresholds for the given crop_id.
-    """
-    if crop_id not in CROPS:
+def extract_blocks(
+    df:      pd.DataFrame,
+    crop_id: int,
+    crops:   dict[int, dict],
+) -> List[SoilCharacteristicsBlock]:
+    if crop_id not in crops:
         raise ValueError(f"crop_id {crop_id} not found")
 
-    crop_row_idx = validate_and_get_row_idx(df, CROP_IDX_COL, crop_id, CROPS)    
-    
+    crop_row_idx = validate_and_get_row_idx(df, CROP_IDX_COL, crop_id, crops)
+
     blocks: List[SoilCharacteristicsBlock] = []
     total_cols = df.shape[1]
 
@@ -181,20 +170,36 @@ def extract_blocks(df: pd.DataFrame, crop_id: int,CROPS) -> List[SoilCharacteris
 
         sq_text          = " ".join(str(v) for v in block_slice.iloc[SQ_ROW]          if pd.notna(v))
         input_level_text = " ".join(str(v) for v in block_slice.iloc[INPUT_LEVEL_ROW] if pd.notna(v))
-        constraint_vals  = [v for v in block_slice.iloc[CONSTRAINT_ROW]               if pd.notna(v)]
+        
+        penalties_vals  = [v for v in block_slice.iloc[PENALTIES_ROW]               if pd.notna(v)]
         crop_vals        = [v for v in block_slice.iloc[crop_row_idx]                  if pd.notna(v)]
 
-        if not constraint_vals:
+        raw_sq       = parse_sq_labels(sq_text)
+        raw_levels   = parse_input_levels(input_level_text)
+        level_sq_map = normalize_input_level(input_level_text, raw_sq)
+        
+        parsed = parse_attribute_name(str(penalties_vals[0]))
+        
+        penalties  = parse_penalties_from_PENALTIES_ROW([str(v) for v in penalties_vals])
+        thresholds = [float(v) for v in crop_vals]
+        
+        if not parsed:
+            print(f"Warning: Unrecognized attribute abbreviation in penalties label: {penalties_vals[0]}")
             col += BLOCK_WIDTH
             continue
-
-        attr_name  = parse_attribute_name(str(constraint_vals[0]))
-        penalties  = parse_penalties_from_constraint_row([str(v) for v in constraint_vals])
-        thresholds = [float(v) for v in crop_vals]
-        raw_sq     = parse_sq_labels(sq_text)
-        raw_levels = parse_input_levels(input_level_text)
-
-        level_sq_map = normalize_input_level(input_level_text, raw_sq)
+        
+        if len(parsed) == 1:
+            attr_name = parsed[0]
+        else:
+            if raw_sq == ["SQ3"]:
+                attr_name = "SPR"
+            else:
+                attr_name = "VSP"
+            #if sql level == SQ3 then pick "SPR" else pick "VSP"
+            
+        # Canonical-unit adjustments.
+        if attr_name == "RSD":
+            thresholds = _convert_rsd_to_mm(thresholds)
 
         for level in raw_levels:
             effective_sqs = level_sq_map.get(level, raw_sq)
@@ -203,7 +208,7 @@ def extract_blocks(df: pd.DataFrame, crop_id: int,CROPS) -> List[SoilCharacteris
                 col_end        = col + BLOCK_WIDTH,
                 attribute_name = attr_name,
                 soil_qualities = effective_sqs,
-                input_levels   = [level],          # one level per block
+                input_levels   = [level],
                 penalties      = penalties,
                 thresholds_row = thresholds,
             ))
@@ -213,7 +218,7 @@ def extract_blocks(df: pd.DataFrame, crop_id: int,CROPS) -> List[SoilCharacteris
 
 
 # ---------------------------------------------------------------------------
-# Filtering functions
+# Filtering
 # ---------------------------------------------------------------------------
 
 def filter_blocks_by_input_level(
@@ -234,22 +239,15 @@ def filter_blocks_by_sq(
             yield block
 
 
-# ---------------------------------------------------------------------------
-# pH deduplication
-# ---------------------------------------------------------------------------
-
 def resolve_ph_blocks(
     blocks:    List[SoilCharacteristicsBlock],
     ph_report: float,
 ) -> List[SoilCharacteristicsBlock]:
-    """
-    For each (SQ, input_level) group that contains more than one pH block
-    (one acidic curve, one basic curve), keep only the curve whose range
-    contains ph_report.  All non-pH blocks are returned unchanged.
-    """
+    """For each (SQ, input_level) group that contains >1 pH block (acidic +
+    basic), keep only the curve whose range contains ph_report. Non-pH
+    blocks are passed through unchanged."""
     non_ph = [b for b in blocks if b.attribute_name != "pH"]
 
-    # Group pH blocks by (frozenset of soil_qualities, frozenset of input_levels)
     ph_groups: dict[tuple, List[SoilCharacteristicsBlock]] = defaultdict(list)
     for b in blocks:
         if b.attribute_name == "pH":
@@ -257,7 +255,7 @@ def resolve_ph_blocks(
             ph_groups[key].append(b)
 
     resolved_ph: List[SoilCharacteristicsBlock] = []
-    for key, ph_blocks in ph_groups.items():
+    for _key, ph_blocks in ph_groups.items():
         if len(ph_blocks) == 1:
             resolved_ph.append(ph_blocks[0])
         else:
@@ -267,73 +265,61 @@ def resolve_ph_blocks(
 
 
 # ---------------------------------------------------------------------------
-# AttributePair builder
+# AttributePair builder + pipeline
 # ---------------------------------------------------------------------------
 
 def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> AttributePair:
-    curve = RatingCurve(
-        crop_id    = crop_id,
-        penalties  = block.penalties,
-        thresholds = block.thresholds_row,
-    )
+    if block.attribute_name in ["SPR", "VSP", "OSD"]:
+        thresh_100 = block.thresholds_row[0]
+        pair_100 = (100, 0 if thresh_100 == _SENTINEL else thresh_100)
+
+        # Find the penalty where threshold == 1
+        pair_1 = next((pen, 1) for pen, thresh in zip(block.penalties, block.thresholds_row) if thresh == 1)
+
+        penalties   = [pair_100[0], pair_1[0]]
+        thresholds  = [pair_100[1], pair_1[1]]
+                        
+        curve = RatingCurve(
+            crop_id    = crop_id,
+            penalties  = penalties,
+            thresholds = thresholds,
+        )
+    else:
+        curve = RatingCurve(
+            crop_id    = crop_id,
+            penalties  = block.penalties,
+            thresholds = [0 if t == _SENTINEL else t for t in block.thresholds_row]
+        )
+    
     return AttributePair(attribute_name=block.attribute_name, rating_curve=curve)
 
-
-# ---------------------------------------------------------------------------
-# Pipeline
-# ---------------------------------------------------------------------------
 
 def run_pipeline(
     csv_path:     str,
     crop_id:      int,
-    crops:       dict[int, dict],
+    crops:        dict[int, dict],
     input_level:  InputLevel,
     ph_report:    float,
     output_dir:   str  = ".",
     write_output: bool = False,
 ) -> Dict[str, pd.DataFrame]:
-    """
-    Full pipeline:
-      1. Load CSV
-      2. Extract all blocks for crop_id
-      3. Filter blocks by input_level
-      4. Resolve pH duplication: keep only the acidic or basic curve
-         based on ph_report
-      5. Group by SQ
-      6. Build AttributePairs and DataFrames per SQ
-      7. Optionally write one CSV per SQ (write_output=True)
-
-    Parameters
-    ----------
-    ph_report    : measured soil pH used to select the correct pH curve
-    write_output : write CSVs when True (default False so the aggregator
-                   does not produce intermediate files)
-
-    Returns a dict of {sq_label: DataFrame} for inspection.
-    """
     df = pd.read_csv(csv_path, header=None)
-    
+
     if not (2.0 <= ph_report <= 10.5):
         raise ValueError(
             f"ph_report {ph_report} is outside the valid range [2.0, 10.5]."
         )
-    # Step 1: extract all blocks for this crop
-    all_blocks = extract_blocks(df, crop_id,crops)
 
-    # Step 2: filter by input level
+    all_blocks      = extract_blocks(df, crop_id, crops)
     filtered_blocks = list(filter_blocks_by_input_level(all_blocks, input_level))
-
-    # Step 3: resolve pH duplication
     filtered_blocks = resolve_ph_blocks(filtered_blocks, ph_report)
 
-    # Step 4: group by SQ
     sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)
     for block in filtered_blocks:
         pair = build_attribute_pair(block, crop_id)
         for sq in block.soil_qualities:
             sq_groups[sq].append(pair)
 
-    # Step 5: build one DataFrame per SQ and optionally write CSV
     result: Dict[str, pd.DataFrame] = {}
     for sq_label, pairs in sorted(sq_groups.items()):
         sq_df = generate_sq_df([attribute_pairs_to_df([p]) for p in pairs])
@@ -345,20 +331,15 @@ def run_pipeline(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     results = run_pipeline(
         csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv",
         crop_id      = 4,
         crops        = CROPS_RAINFED_SPRINKLER,
-        input_level  = InputLevel.INTERMEDIATE,
+        input_level  = InputLevel.HIGH,
         ph_report    = 6.0,
         output_dir   = "engines/edaphic_crop_reqs/results",
         write_output = True,
     )
-
     print("\n--- SQ1 preview ---")
     print(results.get("SQ1", "not found"))

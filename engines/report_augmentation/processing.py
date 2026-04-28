@@ -1,299 +1,291 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from abc import ABC
+import json
+from typing import Any, Dict
+import sqlite3
+from pathlib import Path                          # fix 5: was from zipfile
 
-from engines.report_augmentation.models_and_io import AugmentedLayer, FarmerReport, HWSDLayer, HWSDRepository
+from engines.edaphic_crop_reqs.xlxs_merger import merge_csvs_to_xlsx
+from engines.report_augmentation.models_and_io import AugmentedLayer, AugmentedLayersGroup
+from engines.report_augmentation.vocabulary import CLASS_ATTRIBUTES, HWSD_MAPPER, NUM_ATTRIBUTES
+import csv
 
+def get_code_value(cursor, attribute: str, code) -> str | None:
+    table = f"D_{attribute}"
+    cursor.execute(f"SELECT VALUE FROM {table} WHERE CODE = ?", (code,))
+    row = cursor.fetchone()
+    return row["VALUE"] if row else None  # return first column for now
 
 class AttributeStrategy(ABC):
-    @abstractmethod
-    def compute(
-        self, attr: str, report: FarmerReport,
-        hwsd: HWSDLayer, repo: HWSDRepository, context: Dict[str, Any],
-    ) -> tuple[Any, str]:
-        """Returns (value, provenance_flag)."""
+    def __init__(self, report: str):
+        # report is the json file path with attribute/value pairs
+        with open(report, encoding="utf-8") as f:
+            self.data = json.load(f)
 
 
 class ReadStrategy(AttributeStrategy):
-    """Farmer report → direct read with OC cross-check."""
-    _MAP = {
-        "OC":  ("Taux de carbone",        lambda v: round(v, 4)),
-        "pH":  ("pH",                      lambda v: v),
-        "EC":  ("Conductivité",            lambda v: round(v, 4)),
-        "CCB": ("Carbonates de Calcium",   lambda v: round(v, 4)),
-    }
+    def __init__(self, report: str):                   # fix 1: accept report
+        super().__init__(report)                  # fix 1: call super
+        self.read_attributes: dict[str, Any] = {}
 
-    def compute(self, attr, report, hwsd, repo, context):
-        if attr not in self._MAP:
-            return None, f"READ: no mapping for {attr}"
-        key, fn = self._MAP[attr]
-        val  = fn(report.raw[key])
-        note = f"READ | farmer {key}={val}"
+    def get_attribute_value(self, attribute: str):
+        for item in self.data:
+            if item["attribute"] == attribute:
+                return item["value"]
+        return None
+
+    def compute(self, attr):
         if attr == "OC":
-            oc_mo = round(report.organic_matter / 1.724, 4)
-            dev   = abs(val - oc_mo) / max(oc_mo, 1e-9) * 100
-            note += f" | cross-check: MO/1.724={oc_mo}%"
-            if dev > 15:
-                note += f" ⚠ deviation={dev:.1f}% >15%"
-        return val, note
+            self.read_attributes["OC"] = self.get_attribute_value("Taux de carbone")
+        if attr == "pH":
+            self.read_attributes["pH"] = self.get_attribute_value("pH")
+        if attr == "EC":
+            self.read_attributes["EC"] = self.get_attribute_value("Conductivité")
+        if attr == "CCB":
+            self.read_attributes["CCB"] = self.get_attribute_value("Carbonates de Calcium")
+        return self.read_attributes
 
 
 class AugStrategy(AttributeStrategy):
-    """HWSD fetch with lookup table decoding."""
+    def __init__(self, hwsd_db: str, report: str, smu_id: int):
+        super().__init__(report)
+        self.augmented_attributes: dict[str, Any] = {}
+        self.smu_id = smu_id
+        self.conn = sqlite3.connect(hwsd_db)
+        self.conn.row_factory = sqlite3.Row
+        self.cursor = self.conn.cursor()
 
-    def compute(self, attr, report, hwsd, repo, context):
+    def get_layers_value(self, attribute: str, layer: str = "D1"):
+        self.cursor.execute(
+            f"SELECT {attribute} FROM HWSD2_LAYERS WHERE HWSD2_SMU_ID = ? AND LAYER = ?",
+            (self.smu_id, layer)
+        )
+        row = self.cursor.fetchone()
+        return row[attribute] if row else None
+
+    def get_code_value(self, attribute, code):
+        D_table_name = f"D_{attribute}"
+        self.cursor.execute(
+            f"SELECT code FROM {D_table_name} WHERE CODE = ?", (code,))
+        row = self.cursor.fetchone()
+        return row[code] if row else None
+
+    def get_SMU_value(self, attribute: str):
+        self.cursor.execute(
+            f"SELECT {attribute} FROM HWSD2_SMU WHERE HWSD2_SMU_ID = ?", (self.smu_id,)
+        )
+        row = self.cursor.fetchone()
+        return row[attribute] if row else None
+
+    def close(self):
+        self.conn.close()
+
+    def compute(self, attr):
         if attr == "TXT":
-            raw = hwsd.texture_usda
-            dec = repo.decode_texture_usda(raw)
-            return dec, f"AUG | HWSD TEXTURE_USDA={raw} → {dec}; SOTER={hwsd.texture_soter}"
-        if attr == "RSD":
-            raw = hwsd.root_depth
-            dec = repo.decode_root_depth(raw)
-            return dec, f"AUG | HWSD ROOT_DEPTH class={raw} → {dec}"
+            self.augmented_attributes["TXT"] = self.get_layers_value("TEXTURE_USDA")
         if attr == "DRG":
-            raw = hwsd.drainage
-            dec = repo.decode_drainage(raw)
-            return dec, f"AUG | HWSD DRAINAGE={raw} → {dec}"
-        if attr == "GYP":
-            return round(hwsd.gypsum or 0, 4), f"AUG | HWSD GYPSUM={hwsd.gypsum} % wt"
-        if attr == "CF":
-            return hwsd.coarse, f"AUG | HWSD COARSE={hwsd.coarse} % vol"
-        return None, f"AUG: no handler for {attr}"
-
-
-class CalcStrategy(AttributeStrategy):
-    """Scientifically grounded derivations from farmer + HWSD data."""
-
-    def compute(self, attr, report, hwsd, repo, context):
-
-        if attr == "TEB":
-            ca = (report.Ca_exch / 40.08) * 2 * 10   # Ca²⁺, atomic mass 40.08
-            mg = (report.Mg_exch / 24.31) * 2 * 10   # Mg²⁺, atomic mass 24.31
-            k  = (report.K_exch  / 39.10) * 1 * 10   # K⁺,   atomic mass 39.10
-            na = (report.Na_exch  / 22.99) * 1 * 10  # Na⁺,  atomic mass 22.99
-            teb_farmer = round(ca + mg + k + na, 3)
-            teb_hwsd   = hwsd.teb
-
-            note = (
-                f"CALC | farmer TEB={teb_farmer} cmolc/kg "
-                f"(Ca={ca:.3f}+Mg={mg:.3f}+K={k:.3f}+Na={na:.3f}); "
-                f"HWSD TEB={teb_hwsd} cmolc/kg | ISO 11260:2018"
-            )
-            if teb_hwsd and abs(teb_farmer - teb_hwsd) / max(teb_hwsd, 1e-9) > 0.5:
-                note += (
-                    " | ⚠ discrepancy >50% — farmer cations may include total "
-                    "(not only exchangeable) fractions. Using HWSD TEB as reference."
-                )
-                teb_use = teb_hwsd
-            else:
-                teb_use = teb_farmer
-
-            context["TEB"]        = teb_use
-            context["TEB_farmer"] = teb_farmer
-            context["TEB_hwsd"]   = teb_hwsd
-            return teb_use, note
-
-        if attr == "CECsoil":
-            clay = hwsd.clay or 20.0
-            oc   = report.OC
-            cec  = round(0.57 * clay + 3.58 * oc, 3)
-            context["CECsoil"] = cec
-            note = (f"CALC | Bell&VanKeulen(1995): 0.57×{clay}+3.58×{oc}={cec} cmolc/kg ...")
-            hwsd_cec = hwsd.cec_soil
-            if hwsd_cec and abs(cec - hwsd_cec) / max(hwsd_cec, 1e-9) > 0.30:
-                note += (f" | ⚠ HWSD CEC_SOIL={hwsd_cec} cmolc/kg, divergence=...% >30%")
-            return cec, note
-
-        if attr == "CECclay":
-            cec_s = context.get("CECsoil") or 0
-            oc    = report.OC
-            clay  = (hwsd.clay or 20.0) / 100.0
-            if clay > 0:
-                om_frac = (oc * 1.724) / 100.0   # Van Bemmelen: OC -> OM fraction
-                cec_c = round((cec_s - om_frac * 200.0) / clay, 3)
-                note  = (
-                    f"CALC | FAO HWSD §4: ({cec_s}−({oc}/100)×200)/{clay:.2f}"
-                    f"={cec_c} cmolc/kg | FAO Soils Bulletin 52"
-                )
-            else:
-                cec_c = None
-                note  = "CALC | clay=0, CEC_clay undefined"
-            context["CECclay"] = cec_c
-            return cec_c, note
-
-        if attr == "BS":
-            teb  = context.get("TEB") or 0
-            cecs = context.get("CECsoil") or 1
-            bs_raw = 100.0 * teb / cecs
-            bs     = round(min(bs_raw, 100.0), 2)
-            note   = (
-                f"CALC | BS=100×TEB({teb})/CECsoil({cecs})={bs}%"
-                f" | Sys et al. (1991)"
-            )
-            if bs_raw > 100:
-                note += f" | ⚠ raw={bs_raw:.1f}% capped at 100% (fully saturated)"
-            return bs, note
-
-        if attr == "ESP":
-            na_cmolc = (report.Na_exch / 22.99) * 1 * 10
-            cecs     = context.get("CECsoil") or 1
-            esp      = round(min(100.0 * na_cmolc / cecs, 100.0), 2)
-            return esp, (
-                f"CALC | ESP=100×Na_cmolc({na_cmolc:.4f})/CECsoil({cecs})"
-                f"={esp}% | Note: strategy upgraded from READ→CALC (unit conversion required)"
-            )
-
+            self.augmented_attributes["DRG"] = self.get_layers_value("DRAINAGE")
         if attr == "OSD":
-            oc = report.OC
-            if   oc < 0.6:   cls, code = "Very low",  0
-            elif oc < 1.25:  cls, code = "Low",        1
-            elif oc < 2.5:   cls, code = "Medium",     2
-            elif oc < 6.0:   cls, code = "High",       3
-            else:             cls, code = "Very high", 4
-            return code, (
-                f"CALC | OSD={cls}(code={code}) from OC={oc}% "
-                f"| FAO Soil Description 4th ed. (2006) Annex 2"
-            )
-
-        if attr == "SPR":
-            oc  = report.OC
-            bd  = round(100.0 / (oc / 0.244 + (100.0 - oc) / 1.64), 3)
-            txt = int(hwsd.texture_usda or 9)
-            if txt in {1, 2, 3}:          critical_bd = 1.40
-            elif txt in {12, 13}:          critical_bd = 1.80
-            else:                          critical_bd = 1.65
-            spr = 0 if bd < critical_bd else 1
-            context["SPR"] = spr
-            """
-            note = (f"CALC | BD={bd} g/cm³ ...")
-            if oc < 2.0:
-                note += (f" | warning: OC={oc}% <2%, Adams(1973) extrapolated beyond calibration range for mineral soils")
-            return spr, note
-                    
-            """
-            return spr, (
-                f"CALC | BD={bd} g/cm³ (Adams 1973; OC={oc}%), "
-                f"critical={critical_bd} g/cm³ (TXT_USDA={txt}), SPR={spr} "
-                f"| Arshad et al. (1996) SSSA Spec. Pub. 49"
-            )
-
+            val = self.get_SMU_value("ADD_PROP")
+            self.augmented_attributes["OSD"] = 1 if val == 2 else 0
+        if attr in ("SPR", "VSP"):
+            val = self.get_SMU_value("ADD_PROP")
+            self.augmented_attributes[attr] = 1 if val == 3 else 0  # fix: was hardcoded "OSD"
         if attr == "SPH":
-            ph1 = repo.decode_phase(hwsd.phase1)
-            ph2 = repo.decode_phase(hwsd.phase2)
-            HARD     = {"Petric","Petrocalcic","Petrogypsic","Duripan","Fragipan","Placic","Lithic"}
-            SKELETIC = {"Skeletic"}
-            active   = {ph1, ph2} - {"None"}
-
-            if any(p in HARD     for p in active): sph, label = 1, "hard phase detected"
-            elif any(p in SKELETIC for p in active): sph, label = 2, "Skeletic"
-            elif report.CCB > 40:                   sph, label = 1, "CaCO3>40% → petrocalcic risk"
-            elif report.EC  > 15:                   sph, label = 1, "EC>15 dS/m → salic"
-            else:                                   sph, label = 0, "no limitation"
-            return sph, (
-                f"CALC | PHASE1={ph1}, PHASE2={ph2}, CaCO3={report.CCB}%, "
-                f"EC={report.EC} dS/m → SPH={sph} ({label}) "
-                f"| Sys et al. (1991); FAO Soils Bulletin 55"
-            )
-
-        if attr == "VSP":
-            oc   = report.OC
-            silt = hwsd.silt or 40.0
-            clay = hwsd.clay or 20.0
-            OM   = oc * 1.724
-            M    = silt * (100.0 - clay)
-            s, p = 2, 3
-            K    = round((2.1e-4 * (M ** 1.14) * (12.0 - OM) + 3.25 * (s - 2) + 2.5 * (p - 3)) / 100.0, 4)
-            vsp  = 0 if K < 0.04 else 1
-            return vsp, (
-                f"CALC | K={K} (Wischmeier&Smith 1978; M={M:.0f}, OM={OM:.2f}%), "
-                f"VSP={vsp} | ⚠ slope unavailable — K-factor only (no LS term)"
-            )
-
-        if attr == "GSP":
-            ph1 = repo.decode_phase(hwsd.phase1)
-            ph2 = repo.decode_phase(hwsd.phase2)
-            COARSE_PHASES = {"Skeletic", "Lithic", "Stony", "Gravelly", "Bouldery", "Petroferric"}
-            active = {ph1, ph2} - {"None"}
-            gsp = 1 if any(p in COARSE_PHASES for p in active) else 0
-            return gsp, (f"CALC | PHASE1={ph1}, PHASE2={ph2} -> GSP={gsp} | ...")
-
-        return None, f"CALC: no handler for {attr}"
-    
-ATTRIBUTE_ORDER: List[tuple[str, AttributeStrategy]] = [
-    ("OC",      ReadStrategy()),
-    ("pH",      ReadStrategy()),
-    ("EC",      ReadStrategy()),
-    ("CCB",     ReadStrategy()),
-    ("TXT",     AugStrategy()),
-    ("RSD",     AugStrategy()),
-    ("DRG",     AugStrategy()),
-    ("GYP",     AugStrategy()),
-    ("CF",     AugStrategy()),
-    ("TEB",     CalcStrategy()),
-    ("CECsoil", CalcStrategy()),
-    ("CECclay", CalcStrategy()),
-    ("BS",      CalcStrategy()),
-    ("ESP",     CalcStrategy()),
-    ("OSD",     CalcStrategy()),
-    ("SPR",     CalcStrategy()),
-    ("SPH",     CalcStrategy()),
-    ("GSP",     CalcStrategy()),
-    ("VSP",     CalcStrategy()),
-]
+            code_val = get_code_value(self.cursor, "WRB_PHASES", self.get_layers_value("WRB_PHASES"))
+            self.augmented_attributes["SPH"] = code_val.split(" ")[0] if code_val else None
+        if attr == "RSD":
+            code_val = get_code_value(self.cursor, "ROOT_DEPTH", self.get_layers_value("ROOT_DEPTH"))
+            SOIL_DEPTH = {
+                "Deep (> 100cm)": 150,
+                "Moderately Deep (< 100cm)": 75,
+                "Shallow (< 50cm)": 30,
+                "Very Shallow (< 10cm)": 5,
+            }
+            self.augmented_attributes["RSD"] = SOIL_DEPTH.get(code_val, None)
+        if attr == "GYP":
+            self.augmented_attributes["GYP"] = self.get_layers_value("GYPSUM")
+        if attr == "GRC":
+            self.augmented_attributes["GRC"] = self.get_layers_value("COARSE")
+        if attr == "CEC_CLAY":
+            self.augmented_attributes["CEC_CLAY"] = self.get_layers_value("CEC_CLAY")
+        if attr == "CEC_SOIL":
+            self.augmented_attributes["CEC_SOIL"] = self.get_layers_value("CEC_SOIL")
+        return self.augmented_attributes
 
 
-class AttributeProcessor:
-    def __init__(self, repo: HWSDRepository):
-        self._repo = repo
+class CalcStrategy(AugStrategy):
+    def __init__(self, report: str, hwsd_db: str, smu_id: int):
+        super().__init__(hwsd_db, report, smu_id)  # fix 2: correct order
+        self.calculated_attributes: dict[str, Any] = {}
 
-    def process(
-        self, report: FarmerReport, hwsd: HWSDLayer,
-    ) -> tuple[Dict[str, Any], Dict[str, str]]:
-        values:  Dict[str, Any] = {}
-        flags:   Dict[str, str] = {}
-        context: Dict[str, Any] = {}
+    def get_attribute_value(self, attribute: str):
+        for item in self.data:
+            if item["attribute"] == attribute:
+                return item["value"]
+        return None
 
-        for attr, strategy in ATTRIBUTE_ORDER:
-            val, flag = strategy.compute(attr, report, hwsd, self._repo, context)
-            values[attr]  = val
-            flags[attr]   = flag
-            context[attr] = val
+    def compute_TEB(self, Ca: float, Mg: float, K: float, Na: float):  # fix 7: added self
+        def to_cmolc(g_per_kg, atomic_mass, charge):
+            return (g_per_kg * charge * 100) / atomic_mass
+        ca = to_cmolc(Ca, atomic_mass=40.08, charge=2)
+        mg = to_cmolc(Mg, atomic_mass=24.31, charge=2)
+        k  = to_cmolc(K,  atomic_mass=39.10, charge=1)
+        na = to_cmolc(Na, atomic_mass=22.99, charge=1)
+        return round(ca + mg + k + na, 4), round(na, 4)
 
-        return values, flags
+    def compute_BS(self, TEB: float, CEC_SOIL: float) -> float:       # fix 7: added self
+        return round(min(100.0 * TEB / CEC_SOIL, 100.0), 4)
+
+    def compute_ESP(self, Na_cmolc: float, CEC_SOIL: float) -> float:  # fix 7: added self
+        return round(min(100.0 * Na_cmolc / CEC_SOIL, 100.0), 4)
+
+    def compute(self):
+        ca       = self.get_attribute_value("Calcium échangeable")
+        mg       = self.get_attribute_value("Magnésium échangeable")
+        k        = self.get_attribute_value("Potassium échangeable")
+        na       = self.get_attribute_value("Sodium échangeable")
+        CEC_soil = self.get_layers_value("CEC_SOIL")                   # fix 6: was get_value
+
+        teb, na_cmolc = self.compute_TEB(ca, mg, k, na)
+        bs            = self.compute_BS(teb, CEC_soil)
+        esp           = self.compute_ESP(na_cmolc, CEC_soil)
+
+        self.calculated_attributes["TEB"] = teb
+        self.calculated_attributes["BS"]  = bs
+        self.calculated_attributes["ESP"] = esp
+        return self.calculated_attributes
 
 
-# ===========================================================================
-# V — LAYER INTERPOLATOR  (SRP)
-# ===========================================================================
+STRATEGIES: Dict[str, str] = {
+    "OC": "READ", "pH": "READ", "EC": "READ", "CCB": "READ",
+    "TXT": "AUG", "DRG": "AUG", "OSD": "AUG", "SPR": "AUG",
+    "VSP": "AUG", "SPH": "AUG", "RSD": "AUG", "GYP": "AUG",
+    "GRC": "AUG", "CEC_CLAY": "AUG", "CEC_SOIL": "AUG",
+    "TEB": "CALC", "BS": "CALC", "ESP": "CALC",
+}
+
+
+def build_augmented_layer(report: str, hwsd_db: str, smu_id: int) -> AugmentedLayer:
+    attrs = list(STRATEGIES.keys())
+
+    read_strat = ReadStrategy(report)
+    aug_strat  = AugStrategy(hwsd_db, report, smu_id)
+    calc_strat = CalcStrategy(report, hwsd_db, smu_id)
+
+    calc_done = False
+    for attr in attrs:
+        strat = STRATEGIES[attr]
+        if strat == "READ":
+            read_strat.compute(attr)
+        elif strat == "AUG":
+            aug_strat.compute(attr)
+        elif strat == "CALC" and not calc_done:
+            calc_strat.compute()
+            calc_done = True
+
+    aug_strat.close()
+
+    attributes_dict = read_strat.read_attributes | aug_strat.augmented_attributes | calc_strat.calculated_attributes  # fix 3: removed extra {}
+
+    return AugmentedLayer(layer="D1", values=attributes_dict, smu_id=smu_id)
+
 
 class LayerInterpolator:
-    CATEGORICAL = {"TXT", "DRG", "RSD", "OSD", "SPR", "SPH", "VSP", "CF", "GSP"}
+    def __init__(self, hwsd_db: str):
+        self.hwsd_db = hwsd_db
+        self.conn = sqlite3.connect(hwsd_db)
+        self.conn.row_factory = sqlite3.Row
+        self.cursor = self.conn.cursor()
 
-    def interpolate(
-        self, d1: AugmentedLayer, d2_hwsd: AugmentedLayer,
-    ) -> AugmentedLayer:
+    def get_hwsd_layer(self, layer: str, smu_id: int) -> AugmentedLayer:
+        columns = ", ".join(HWSD_MAPPER.keys())
+        self.cursor.execute(
+            f"SELECT {columns} FROM HWSD2_LAYERS WHERE HWSD2_SMU_ID = ? AND LAYER = ?",
+            (smu_id, layer)
+        )
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+
+        values = {}
+        for hwsd_col, abbrv in HWSD_MAPPER.items():
+            if hwsd_col == "ADD_PROP":
+                val = row[hwsd_col]
+                values["OSD"] = 1 if val == 2 else 0
+                values["SPR"] = 1 if val == 3 else 0
+                values["VSP"] = 1 if val == 3 else 0
+                continue
+            elif hwsd_col == "WRB_PHASES":
+                code_val = get_code_value(self.cursor, "WRB_PHASES", row["WRB_PHASES"])  # use row directly
+                values["SPH"] = code_val.split(" ")[0] if code_val else None
+                continue  # ← also add this so it doesn't fall through to values[abbrv]
+
+            values[abbrv] = row[hwsd_col]
+
+        return AugmentedLayer(smu_id=smu_id, values=values, layer=layer)
+    
+    def close(self):
+        self.conn.close()
+
+    def interpolate(self, d1: AugmentedLayer, d2_hwsd: AugmentedLayer) -> AugmentedLayer:
         values: Dict[str, Any] = {}
-        flags:  Dict[str, str] = {}
-
-        for attr in d1.values:
+        for attr in NUM_ATTRIBUTES:
             v1 = d1.values.get(attr)
             v2 = d2_hwsd.values.get(attr)
-
-            if attr in self.CATEGORICAL:
-                values[attr] = v2
-                flags[attr]  = f"INTERP | categorical → HWSD D2 ({v2})"
-            elif v1 is not None and v2 is not None:
-                try:
-                    iv = round(0.5 * float(v1) + 0.5 * float(v2), 4)
-                    values[attr] = iv
-                    flags[attr]  = f"INTERP | 0.5×D1({v1}) + 0.5×D2({v2}) = {iv}"
-                except (TypeError, ValueError):
-                    values[attr] = v2
-                    flags[attr]  = f"INTERP | non-numeric → HWSD D2 ({v2})"
+            if attr in CLASS_ATTRIBUTES:
+                values[attr] = v2 if v2 is not None else v1
+                continue
+            if v1 is not None and v2 is not None:
+                values[attr] = round(0.5 * float(v1) + 0.5 * float(v2), 4)
             elif v2 is not None:
-                values[attr] = v2
-                flags[attr]  = f"INTERP | D1 missing → HWSD D2 ({v2})"
+                values[attr] = float(v2)
+            elif v1 is not None:
+                values[attr] = float(v1)
             else:
-                values[attr] = v1
-                flags[attr]  = f"INTERP | D2 missing → D1 enriched ({v1})"
+                values[attr] = None
+        return AugmentedLayer("D2", values, d2_hwsd.smu_id)
 
-        return AugmentedLayer("D2", d2_hwsd.top_dep, d2_hwsd.bot_dep, values, flags, d2_hwsd.smu_id)
+    def build_augmented_layers(self, d1: AugmentedLayer, d2: AugmentedLayer, smu_id: int) -> AugmentedLayersGroup:
+        d3 = self.get_hwsd_layer("D3", smu_id)   # fix 4: was self.smu_id
+        d4 = self.get_hwsd_layer("D4", smu_id)
+        d5 = self.get_hwsd_layer("D5", smu_id)
+        d6 = self.get_hwsd_layer("D6", smu_id)
+        d7 = self.get_hwsd_layer("D7", smu_id)
+        return AugmentedLayersGroup([d1, d2, d3, d4, d5, d6, d7])
+
+    def layers_orchestrator(self, report: str, smu_id: int) -> AugmentedLayersGroup:
+        d1      = build_augmented_layer(report, self.hwsd_db, smu_id)
+        d2_hwsd = self.get_hwsd_layer("D2", smu_id)
+        d2      = self.interpolate(d1, d2_hwsd)
+        return self.build_augmented_layers(d1, d2, smu_id)
+
+
+class Output:
+    def to_csv(self, layer: AugmentedLayer, output_path: str):
+        fieldnames = ["CODE"] + list(layer.values.keys())
+        row = {"CODE": layer.smu_id, **layer.values}
+        with open(output_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(row)
+
+    def to_xlsx(self, group: AugmentedLayersGroup, output_path: str):
+        temp_folder = "temp_csvs"
+        Path(temp_folder).mkdir(parents=True, exist_ok=True)
+        for layer in group.layers:
+            self.to_csv(layer, f"{temp_folder}/{layer.layer}.csv")
+        merge_csvs_to_xlsx(folder=temp_folder, output_file=output_path)
+
+
+if __name__ == "__main__":
+    report   = "engines/report_augmentation/rapport_values.json"          # replace with your FarmerReport object
+    hwsd_db  = "hwsd.db"     # replace with your .db path
+    smu_id   = 31802          # replace with your SMU_ID
+    output   = "engines/report_augmentation/results/output.xlsx" # replace with desired output path
+
+    interpolator = LayerInterpolator(hwsd_db)
+    group        = interpolator.layers_orchestrator(report, smu_id)
+    interpolator.close()
+
+    Output().to_xlsx(group, output)
+    print(f"Done → {output}")

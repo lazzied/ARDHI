@@ -122,14 +122,18 @@ class TiffLayer:
 def parse_url(url: str) -> TiffLayer:
     """Parse a GAEZ tiff URL into a TiffLayer."""
     filename = url.rsplit("/", 1)[-1]
-    dims = filename.replace(".tif", "").split(".")
+    dims = [part.strip() for part in filename.replace(".tif", "").split(".")]
     map_code = dims[1]
     n = len(dims)
 
     if map_code.startswith(("RES02", "RES05")) and n == 7:
+        input_level = INPUT_LEVELS[dims[6]]["management"]
+        water_supply = INPUT_LEVELS[dims[6]]["water_supply"]
+        
+        
         return TiffLayer(url=url, map_code=map_code,
                          period=dims[2], climate_model=dims[3], ssp=dims[4],
-                         crop_code=dims[5], input_level=dims[6])
+                         crop_code=dims[5], input_level=input_level, water_supply=water_supply)
     if map_code.startswith("RES01") and n == 5:
         return TiffLayer(url=url, map_code=map_code,
                          period=dims[2], climate_model=dims[3], ssp=dims[4])
