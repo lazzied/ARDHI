@@ -83,9 +83,10 @@ class AugStrategy(AttributeStrategy):
         if attr == "TXT":
             code_val = get_code_value(self.cursor, "TEXTURE_USDA", self.get_layers_value("TEXTURE_USDA"))
             self.augmented_attributes["TXT"] = code_val.lower() if code_val else None
-            
+            print("TXT from hwsd:", self.augmented_attributes["TXT"])
         if attr == "DRG":
             self.augmented_attributes["DRG"] = self.get_layers_value("DRAINAGE")
+            print("DRG from hwsd:", self.augmented_attributes["DRG"])
         if attr == "OSD":
             val = self.get_SMU_value("ADD_PROP")
             self.augmented_attributes["OSD"] = 1 if val == 2 else 0
@@ -147,7 +148,9 @@ class CalcStrategy(AugStrategy):
         mg       = self.get_attribute_value("Magnésium échangeable")
         k        = self.get_attribute_value("Potassium échangeable")
         na       = self.get_attribute_value("Sodium échangeable")
-        CEC_soil = self.get_layers_value("CEC_SOIL")                   # fix 6: was get_value
+        CEC_soil = self.get_layers_value("CEC_SOIL")  
+        print(f"[CalcStrategy.compute] smu_id={self.smu_id} "
+          f"ca={ca} mg={mg} k={k} na={na} CEC_soil={CEC_soil}")# fix 6: was get_value
 
         teb, na_cmolc = self.compute_TEB(ca, mg, k, na)
         bs            = self.compute_BS(teb, CEC_soil)
@@ -219,7 +222,7 @@ class LayerInterpolator:
                 values["VSP"] = 1 if val == 3 else 0
                 continue
             
-            if hwsd_col == "ROOT_DEPTH":
+            elif hwsd_col == "ROOT_DEPTH":
                 code_val = get_code_value(self.cursor, "ROOT_DEPTH", row["ROOT_DEPTH"])
                 SOIL_DEPTH = {
                     "Deep (> 100cm)": 150,
@@ -289,24 +292,25 @@ class Output:
             writer.writeheader()
             writer.writerow(row)
 
-    def to_xlsx(self, group: AugmentedLayersGroup, output_path: str):
+    def to_xlsx(self, group: AugmentedLayersGroup, output_dir: str , filename: str):
         temp_folder = "temp_csvs"
         Path(temp_folder).mkdir(parents=True, exist_ok=True)
         for layer in group.layers:
             self.to_csv(layer, f"{temp_folder}/{layer.layer}.csv")
-        merge_csvs_to_xlsx(folder=temp_folder, output_file=output_path)
-        return output_path
+        merge_csvs_to_xlsx(folder=temp_folder, output_file=output_dir + f"/{filename}.xlsx")
+        return output_dir + f"/{filename}.xlsx"
 
 
 if __name__ == "__main__":
     report   = "engines/report_augmentation/rapport_values.json"          # replace with your FarmerReport object
     hwsd_db  = "hwsd.db"     # replace with your .db path
-    smu_id   = 31802          # replace with your SMU_ID
-    output   = "engines/report_augmentation/results/output.xlsx" # replace with desired output path
+    smu_id   = 31835          # replace with your SMU_ID
+    output   = "engines/report_augmentation/results" # replace with desired output directory
+    filename = "report_augmented_layers"
 
     interpolator = LayerInterpolator(hwsd_db)
     group        = interpolator.layers_orchestrator(report, smu_id)
     interpolator.close()
 
-    Output().to_xlsx(group, output)
+    Output().to_xlsx(group, output, filename)
     print(f"Done → {output}")

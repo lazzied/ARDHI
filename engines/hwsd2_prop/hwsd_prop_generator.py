@@ -12,7 +12,7 @@ class HWSDPropGenerator:
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
         
-        self.hwsd_attributes = dict[str, Any] = {}
+        self.hwsd_attributes : dict[str, Any] = {}
 
     def get_layers_value(self, attribute: str, layer: str = "D1"):
         self.cursor.execute(
@@ -51,8 +51,9 @@ class HWSDPropGenerator:
             val = self.get_SMU_value("ADD_PROP")
             self.hwsd_attributes[attr] = 1 if val == 3 else 0  # fix: was hardcoded "OSD"
         if attr == "SPH":
-            code_val = self.get_code_value(self.cursor, "WRB_PHASES", self.get_layers_value("WRB_PHASES"))
-            self.hwsd_attributes["SPH"] = code_val.split(" ")[0] if code_val else None
+            code_val = get_code_value(self.cursor, "PHASE", self.get_layers_value("PHASE1"))
+            self.augmented_attributes["SPH"] = code_val.split(" ")[0] if code_val else "obstacle to roots no information"
+           
         if attr == "RSD":
             code_val = self.get_code_value(self.cursor, "ROOT_DEPTH", self.get_layers_value("ROOT_DEPTH"))
             SOIL_DEPTH = {
@@ -61,15 +62,15 @@ class HWSDPropGenerator:
                 "Shallow (< 50cm)": 30,
                 "Very Shallow (< 10cm)": 5,
             }
-            self.hwsd_attributes["RSD"] = SOIL_DEPTH.get(code_val, None)
+            self.hwsd_attributes["RSD"] = SOIL_DEPTH.get(code_val, 100)
         if attr == "GYP":
             self.hwsd_attributes["GYP"] = self.get_layers_value("GYPSUM")
         if attr == "GRC":
             self.hwsd_attributes["GRC"] = self.get_layers_value("COARSE")
         if attr == "CEC_CLAY":
-            self.hwsd_attributes["CEC_CLAY"] = self.get_layers_value("CEC_CLAY")
+            self.hwsd_attributes["CEC_clay"] = self.get_layers_value("CEC_CLAY")
         if attr == "CEC_SOIL":
-            self.hwsd_attributes["CEC_SOIL"] = self.get_layers_value("CEC_SOIL")
+            self.hwsd_attributes["CEC_soil"] = self.get_layers_value("CEC_SOIL")
         if attr == "OC":
             self.hwsd_attributes["OC"] = self.get_layers_value("ORG_CARBON")
         if attr == "pH":
@@ -104,9 +105,26 @@ class HWSDPropGenerator:
                 values["SPR"] = 1 if val == 3 else 0
                 values["VSP"] = 1 if val == 3 else 0
                 continue
-            elif hwsd_col == "WRB_PHASES":
-                code_val = get_code_value(self.cursor, "WRB_PHASES", row["WRB_PHASES"])  # use row directly
-                values["SPH"] = code_val.split(" ")[0] if code_val else None
+            
+            if hwsd_col == "ROOT_DEPTH":
+                code_val = get_code_value(self.cursor, "ROOT_DEPTH", row["ROOT_DEPTH"])
+                SOIL_DEPTH = {
+                    "Deep (> 100cm)": 150,
+                    "Moderately Deep (< 100cm)": 75,
+                    "Shallow (< 50cm)": 30,
+                    "Very Shallow (< 10cm)": 5,
+                }
+                values["RSD"] = SOIL_DEPTH.get(code_val, 100)
+                continue
+            
+            elif hwsd_col == "TEXTURE_USDA":
+                code_val = get_code_value(self.cursor, "TEXTURE_USDA", row["TEXTURE_USDA"])
+                values["TXT"] = code_val.lower() if code_val else None
+                continue
+            
+            elif hwsd_col == "PHASE1":
+                code_val = get_code_value(self.cursor, "PHASE", row["PHASE1"])  # use row directly
+                values["SPH"] = code_val.split(" ")[0] if code_val else "obstacle to roots no information"
                 continue  # ← also add this so it doesn't fall through to values[abbrv]
 
             values[abbrv] = row[hwsd_col]
@@ -124,9 +142,18 @@ class HWSDPropGenerator:
             
             return AugmentedLayersGroup([d1, d2, d3, d4, d5, d6, d7])
         
-    def orchestrator(self, output_path: str) -> AugmentedLayersGroup:
+    def orchestrator(self, output_dir: str, filename: str) -> str:
         try:
             group = self.build_augmented_layers(self.smu_id)
-            return Output().to_xlsx(group, output_path)
+            print(f"Group: {group}")
+            return Output().to_xlsx(group, output_dir, filename)
         finally:
             self.close()    
+
+if __name__ == "__main__":
+    smu_id = 31802  # replace with actual SMU ID
+    hwsd_db_path = "hwsd.db"  # replace with actual path to HWSD SQLite database
+    output_dir = "engines/hwsd2_prop/results"  # desired output directory for the Excel file
+    filename = "hwsd_augmented_layers"
+    generator = HWSDPropGenerator(smu_id, hwsd_db_path)
+    generator.orchestrator(output_dir, filename)

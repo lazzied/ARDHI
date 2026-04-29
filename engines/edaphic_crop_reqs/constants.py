@@ -156,7 +156,7 @@ ATTR_ABBREV_MAP: Dict[str, list[str]] = {
 DRAINAGE_ABBREV_MAP: Dict[str, str] = {
     "very poor": "VP",
     "poor":      "P",
-    "imperfecty": "I",
+    "imperfectly": "I",
     "moderately well": "MW",
     "well":       "W",
     "somewhat excessive": "SE",
