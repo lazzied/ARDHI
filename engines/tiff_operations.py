@@ -1,0 +1,1 @@
+#getters / setters for tiff layers; db navigation; constants all of that;

@@ -1,60 +1,42 @@
 """
 edaphic_pipeline.py
 ====================
-Full end-to-end production pipeline.
+Sequential pipeline built on top of `run_aggregator`.
 
-Generates one Excel workbook per valid combination of:
-    crop × water_management × input_level × ph_mode × texture_class
+For every valid combination of:
+    water_system × crop × input_level × ph_mode × texture_class
+the orchestrator is called once. Its per-SQ DataFrames are merged into one
+xlsx (one sheet per SQ). One row per output is recorded in `edaphic_outputs`.
 
-Valid crop+water combinations are detected at runtime by scanning the
-appendix CSVs — no hardcoded crop lists per water management system.
-
-Parser 4 file mapping (each file encodes its input level in its title):
-    .4.csv → HIGH
-    .5.csv → INTERMEDIATE
-    .6.csv → LOW  (optional — skipped if file does not exist)
-
-Output tree
------------
-edaphic_crop_requirements_xlsx/
-    rainfed_sprinkler/
-        wheat/
-            wheat_rainfed_sprinkler_HIGH_acidic_fine.xlsx
-            ...
-    irrigated_drip/
-        ...
-    irrigated_gravity/
-        ...
-
-Database
---------
-Connects to the existing  edaphic.db  — does NOT recreate it.
-Inserts one record per generated file.
-
-Usage
------
-    python -m engines.edaphic_crop_reqs.edaphic_pipeline
+The orchestrator writes intermediate per-SQ CSVs as a side effect; we point
+it at a TemporaryDirectory so those CSVs are deleted automatically once the
+xlsx is built.
 """
 from __future__ import annotations
 
 import logging
 import os
 import sqlite3
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, List
 
 import pandas as pd
 
-from engines.edaphic_crop_reqs.constants import CROPS_DRIP_IRRIGATION, CROPS_GRAVITY_IRRIGATION, CROPS_RAINFED_SPRINKLER
+from engines.edaphic_crop_reqs.constants import (
+    CROPS_RAINFED_SPRINKLER,
+    CROPS_DRIP_IRRIGATION,
+    CROPS_GRAVITY_IRRIGATION,
+)
 from engines.edaphic_crop_reqs.models import InputLevel
+from engines.edaphic_crop_reqs.edaphic_orchestrator import run_trio_aggregators
 
 import engines.edaphic_crop_reqs.appendix6_3_1_parser as parser_1
 import engines.edaphic_crop_reqs.appendix6_3_2_parser as parser_2
 import engines.edaphic_crop_reqs.appendix6_3_3_parser as parser_3
 import engines.edaphic_crop_reqs.appendix6_3_4_parser as parser_4
+from engines.edaphic_crop_reqs.utils_functions import write_sq_df_to_csv
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +44,8 @@ import engines.edaphic_crop_reqs.appendix6_3_4_parser as parser_4
 # ---------------------------------------------------------------------------
 
 OUTPUT_ROOT = "edaphic_crop_requirements_xlsx"
-DB_PATH     = "ardhi.db"          # existing DB — do NOT recreate
-LOG_PATH    = "edaphic_crop_requirements_xlsx/pipeline.log"
+DB_PATH     = "ardhi.db"
+LOG_PATH    = f"{OUTPUT_ROOT}/pipeline.log"
 
 PH_ACIDIC = 5.5
 PH_BASIC  = 8.0
@@ -75,99 +57,64 @@ BASE = "engines/edaphic_crop_reqs/appendixes"
 
 
 # ---------------------------------------------------------------------------
-# Water management configurations
+# Water management systems
 #
-# csv_p4_map: maps InputLevel → path of the .4/.5/.6 file for parser_4.
-# If a path does not exist on disk the corresponding input level is skipped.
+# Each system carries the parser registry that `run_aggregator` will iterate.
+# `valid_input_levels` enumerates which input levels actually have a
+# corresponding parser_4 file (drip & gravity have no LOW).
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class WaterManagementConfig:
-    name:      str
-    folder:    str
-    crops:     dict[int, dict]
-    csv_p1:    str          # parser_1 source (used for crop detection too)
-    csv_p2:    str          # parser_2 source
-    csv_p3:    str          # parser_3 source
-    csv_p4_map: Dict[InputLevel, str] = field(default_factory=dict)
-    # ^ maps InputLevel → .4/.5/.6 csv path for parser_4
+class WaterSystem:
+    name:               str
+    folder:             str
+    crops:              dict[int, dict]
+    parser_registry:    list
+    valid_input_levels: list[InputLevel]
 
 
-WATER_CONFIGS: List[WaterManagementConfig] = [
-    WaterManagementConfig(
+WATER_SYSTEMS: List[WaterSystem] = [
+    WaterSystem(
         name   = "rainfed_sprinkler",
         folder = "rainfed_sprinkler",
-        crops = CROPS_RAINFED_SPRINKLER,
-        csv_p1 = f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv",
-        csv_p2 = f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv",
-        csv_p3 = f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.3.csv",
-        csv_p4_map = {
-            InputLevel.HIGH:         f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv",
-            InputLevel.INTERMEDIATE: f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.5.csv",
-            InputLevel.LOW:          f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.6.csv",
-        },
+        crops  = CROPS_RAINFED_SPRINKLER,
+        parser_registry = [
+            (parser_1, f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv", True),
+            (parser_2, f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv", True),
+            (parser_3, f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.3.csv", True),
+            (parser_4, f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv", InputLevel.HIGH),
+            (parser_4, f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.5.csv", InputLevel.INTERMEDIATE),
+            (parser_4, f"{BASE}/rainfed_sprinkler_appendix/csv_sheets/A6-3.6.csv", InputLevel.LOW),
+        ],
+        valid_input_levels = [InputLevel.HIGH, InputLevel.INTERMEDIATE, InputLevel.LOW],
     ),
-    WaterManagementConfig(
+    WaterSystem(
         name   = "irrigated_drip",
         folder = "irrigated_drip",
         crops  = CROPS_DRIP_IRRIGATION,
-        csv_p1 = f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.1.csv",
-        csv_p2 = f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.2.csv",
-        csv_p3 = f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.3.csv",
-        csv_p4_map = {
-            InputLevel.HIGH:         f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.4.csv",
-            InputLevel.INTERMEDIATE: f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.5.csv",
-        },
+        parser_registry = [
+            (parser_1, f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.1.csv", True),
+            (parser_2, f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.2.csv", True),
+            (parser_3, f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.3.csv", True),
+            (parser_4, f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.4.csv", InputLevel.HIGH),
+            (parser_4, f"{BASE}/drip_irrigation_appendix/csv_sheets/A6-5.5.csv", InputLevel.INTERMEDIATE),
+        ],
+        valid_input_levels = [InputLevel.HIGH, InputLevel.INTERMEDIATE],
     ),
-    WaterManagementConfig(
+    WaterSystem(
         name   = "irrigated_gravity",
         folder = "irrigated_gravity",
-        crops = CROPS_GRAVITY_IRRIGATION,
-        csv_p1 = f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.1.csv",
-        csv_p2 = f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.2.csv",
-        csv_p3 = f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.3.csv",
-        csv_p4_map = {
-            InputLevel.HIGH:         f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.4.csv",
-            InputLevel.INTERMEDIATE: f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.5.csv",
-        },
+        crops  = CROPS_GRAVITY_IRRIGATION,
+        parser_registry = [
+            (parser_1, f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.1.csv", True),
+            (parser_2, f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.2.csv", True),
+            (parser_3, f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.3.csv", True),
+            (parser_4, f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.4.csv", InputLevel.HIGH),
+            (parser_4, f"{BASE}/gravity_irrigation_appendix/csv_sheets/A6-4.5.csv", InputLevel.INTERMEDIATE),
+        ],
+        valid_input_levels = [InputLevel.HIGH, InputLevel.INTERMEDIATE],
     ),
 ]
-
-
-# ---------------------------------------------------------------------------
-# Job descriptor
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class PipelineJob:
-    crop_id:       int
-    crop_name:     str
-    wm:            WaterManagementConfig
-    input_level:   InputLevel
-    ph_mode:       str      # "acidic" | "basic"
-    ph_value:      float
-    texture_class: str      # "fine" | "medium" | "coarse"
-    csv_p4:        str      # resolved .4/.5/.6 path for this input level
-
-    @property
-    def safe_crop_name(self) -> str:
-        return self.crop_name.replace(" ", "_")
-
-    @property
-    def output_filename(self) -> str:
-        return (
-            f"{self.safe_crop_name}_{self.wm.name}"
-            f"_{self.input_level.value.upper()}"
-            f"_{self.ph_mode}_{self.texture_class}.xlsx"
-        )
-
-    @property
-    def output_dir(self) -> str:
-        return os.path.join(OUTPUT_ROOT, self.wm.folder, self.safe_crop_name)
-
-    @property
-    def output_path(self) -> str:
-        return os.path.join(self.output_dir, self.output_filename)
 
 
 # ---------------------------------------------------------------------------
@@ -182,13 +129,9 @@ def _setup_logging() -> logging.Logger:
     logger.setLevel(logging.DEBUG)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
     fh = logging.FileHandler(LOG_PATH, encoding="utf-8")
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
+    fh.setLevel(logging.DEBUG); fh.setFormatter(fmt); logger.addHandler(fh)
     ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(fmt)
-    logger.addHandler(fh)
-    logger.addHandler(ch)
+    ch.setLevel(logging.INFO);  ch.setFormatter(fmt); logger.addHandler(ch)
     return logger
 
 
@@ -196,337 +139,193 @@ logger = _setup_logging()
 
 
 # ---------------------------------------------------------------------------
-# Database  (connect to existing edaphic.db — never recreate)
+# Database
 # ---------------------------------------------------------------------------
 
-_db_local = threading.local()
-
-
-def _get_conn() -> sqlite3.Connection:
-    """One connection per thread, WAL mode for safe concurrent writes."""
-    if not hasattr(_db_local, "conn"):
-        _db_local.conn = sqlite3.connect(DB_PATH)
-        _db_local.conn.execute("PRAGMA journal_mode=WAL")
-    return _db_local.conn
-
-
 def ensure_table() -> None:
-    """
-    Create the outputs table if it does not already exist.
-    Safe to call on an existing DB — will not drop or alter existing data.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS edaphic_outputs (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
-            crop_id          INTEGER NOT NULL,
-            crop_name        TEXT    NOT NULL,
-            water_management TEXT    NOT NULL,
-            input_level      TEXT    NOT NULL,
-            ph_mode          TEXT    NOT NULL,
-            texture_class    TEXT    NOT NULL,
-            filepath         TEXT    NOT NULL UNIQUE,
-            generated_at     TEXT    NOT NULL,
-            status           TEXT    NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_crop
-            ON edaphic_outputs(crop_id);
-        CREATE INDEX IF NOT EXISTS idx_water_mgmt
-            ON edaphic_outputs(water_management);
-        CREATE INDEX IF NOT EXISTS idx_input_level
-            ON edaphic_outputs(input_level);
-        CREATE INDEX IF NOT EXISTS idx_status
-            ON edaphic_outputs(status);
-    """)
-    conn.commit()
-    conn.close()
+    """Create edaphic_outputs if missing — never drops or alters existing data."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS edaphic_outputs (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                crop_id          INTEGER NOT NULL,
+                crop_name        TEXT    NOT NULL,
+                water_supply TEXT    NOT NULL,
+                input_level      TEXT    NOT NULL,
+                ph_mode          TEXT    NOT NULL,
+                texture_class    TEXT    NOT NULL,
+                file_path         TEXT    NOT NULL UNIQUE,
+                generated_at     TEXT    NOT NULL,
+                status           TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_crop        ON edaphic_outputs(crop_id);
+            CREATE INDEX IF NOT EXISTS idx_water_supply ON edaphic_outputs(water_supply);
+            CREATE INDEX IF NOT EXISTS idx_input_level ON edaphic_outputs(input_level);
+            CREATE INDEX IF NOT EXISTS idx_status      ON edaphic_outputs(status);
+        """)
 
 
-def _insert_record(job: PipelineJob, status: str) -> None:
-    """
-    Insert one record per generated file.
-    ON CONFLICT updates status + timestamp so re-runs stay idempotent.
-    """
-    conn = _get_conn()
+def insert_record(
+    conn: sqlite3.Connection,
+    *, crop_id: int, crop_name: str, wm_name: str, input_level: str,
+    ph_mode: str, texture_class: str, filepath: str, status: str,
+) -> None:
     conn.execute(
         """
         INSERT INTO edaphic_outputs
-            (crop_id, crop_name, water_management, input_level,
-             ph_mode, texture_class, filepath, generated_at, status)
+            (crop_id, crop_name, water_supply, input_level,
+             ph_mode, texture_class, file_path, generated_at, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(filepath) DO UPDATE SET
+        ON CONFLICT(file_path) DO UPDATE SET
             status       = excluded.status,
             generated_at = excluded.generated_at
         """,
-        (
-            job.crop_id,
-            job.crop_name,
-            job.wm.name,
-            job.input_level.value,
-            job.ph_mode,
-            job.texture_class,
-            os.path.abspath(job.output_path),
-            datetime.now(timezone.utc).isoformat(),
-            status,
-        ),
+        (crop_id, crop_name, wm_name, input_level,
+         ph_mode, texture_class, os.path.abspath(filepath),
+         datetime.now(timezone.utc).isoformat(), status),
     )
     conn.commit()
 
 
 # ---------------------------------------------------------------------------
-# Crop detection
+# Output helpers
 # ---------------------------------------------------------------------------
 
-def detect_available_crops(csv_p1: str) -> Set[int]:
-    """
-    Scan a water management system's parser-1 CSV and return the set of
-    crop IDs actually present. Checks column 0 first, then column 1.
-    Returns an empty set (with a warning) if the file is missing.
-    """
-    if not os.path.exists(csv_p1):
-        logger.warning(f"Crop detection: file not found — {csv_p1}")
-        return set()
-    try:
-        df = pd.read_csv(csv_p1, header=None)
-        for col_idx in (0, 1):
-            id_col = pd.to_numeric(df.iloc[:, col_idx], errors="coerce")
-            ids = {
-                int(v) for v in id_col.dropna()
-                if v == int(v) and 1 <= v <= 200
-            }
-            if ids:
-                return ids
-    except Exception as e:
-        logger.warning(f"Crop detection failed for {csv_p1}: {e}")
-    return set()
+def _safe_crop(name: str) -> str:
+    return name.replace(" ", "_")
 
 
-# ---------------------------------------------------------------------------
-# Directory creation lock
-# ---------------------------------------------------------------------------
+def _output_path(wm: WaterSystem, crop_name: str, input_level: InputLevel,
+                 ph_mode: str, texture_class: str) -> str:
+    fname = (
+        f"{_safe_crop(crop_name)}_{wm.name}"
+        f"_{input_level.value.upper()}_{ph_mode}_{texture_class}.xlsx"
+    )
+    return os.path.join(OUTPUT_ROOT, wm.folder, _safe_crop(crop_name), fname)
 
-_mkdir_lock = threading.Lock()
 
-
-def _safe_makedirs(path: str) -> None:
-    with _mkdir_lock:
-        os.makedirs(path, exist_ok=True)
+def _write_xlsx(sq_dict: Dict[str, pd.DataFrame], out_path: str) -> None:
+    """Merge per-SQ DataFrames into one xlsx, one sheet per SQ."""
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        for sq_label in ALL_SQ_LABELS:
+            df = sq_dict.get(sq_label)
+            if df is None or df.empty:
+                continue
+            df.to_excel(writer, sheet_name=sq_label, header=False)
 
 
 # ---------------------------------------------------------------------------
-# Core job runner
+# Single combination runner
 # ---------------------------------------------------------------------------
 
-def _run_job(job: PipelineJob) -> bool:
-    """Run all parsers for one job, write xlsx, record in DB."""
+def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
+            ph_mode: str, ph_value: float,
+            texture_class: str, conn: sqlite3.Connection) -> bool:
 
-    # Idempotent: skip already-generated files
-    if os.path.exists(job.output_path):
-        logger.debug(f"SKIP (exists): {job.output_filename}")
-        return True
+    with tempfile.TemporaryDirectory(prefix="edaphic_") as tmp:
+        try:
+            all_results = run_trio_aggregators(
+                crops                = wm.crops,
+                crop_id              = crop_id,
+                ph_report            = ph_value,
+                texture_class_report = texture_class,
+                output_dir           = tmp,
+                parser_registry      = wm.parser_registry,
+            )
+        except Exception as e:
+            logger.error(f"FAIL [{crop_name}] orchestrator raised: {e}")
+            for input_level in wm.valid_input_levels:
+                out_path = _output_path(wm, crop_name, input_level, ph_mode, texture_class)
+                insert_record(conn, crop_id=crop_id, crop_name=crop_name,
+                              wm_name=wm.name, input_level=input_level.value,
+                              ph_mode=ph_mode, texture_class=texture_class,
+                              filepath=out_path, status="failed")
+            return False
 
-    _safe_makedirs(job.output_dir)
+        # Write CSVs per level into tmp subdirs, then merge into xlsx
+        all_ok = True
+        for input_level in wm.valid_input_levels:
+            sq_dict  = all_results.get(input_level.value, {})
+            out_path = _output_path(wm, crop_name, input_level, ph_mode, texture_class)
 
-    sq_buckets: Dict[str, List[pd.DataFrame]] = {}
-
-    def _collect(partial: Dict[str, pd.DataFrame]) -> None:
-        for sq, df in partial.items():
-            sq_buckets.setdefault(sq, []).append(df)
-
-    # Parser 1 — chemical/physical attributes + pH curve selection
-    try:
-        _collect(parser_1.run_pipeline(
-            csv_path     = job.wm.csv_p1,
-            crop_id      = job.crop_id,
-            input_level  = job.input_level,
-            crops = job.wm.crops,
-            ph_report    = job.ph_value,
-            write_output = False,
-        ))
-    except Exception as e:
-        logger.warning(f"parser_1 [{job.output_filename}]: {e}")
-
-    # Parser 2 — soil texture classes
-    try:
-        _collect(parser_2.run_pipeline(
-            csv_path     = job.wm.csv_p2,
-            crop_id      = job.crop_id,
-            input_level  = job.input_level,
-            crops = job.wm.crops,
-            write_output = False,
-        ))
-    except Exception as e:
-        logger.warning(f"parser_2 [{job.output_filename}]: {e}")
-
-    # Parser 3 — drainage classes (texture-filtered)
-    try:
-        _collect(parser_3.run_pipeline(
-            csv_path             = job.wm.csv_p3,
-            crop_id              = job.crop_id,
-            input_level          = job.input_level,
-            crops= job.wm.crops,
-            texture_class_report = job.texture_class,
-            write_output         = False,
-        ))
-    except Exception as e:
-        logger.warning(f"parser_3 [{job.output_filename}]: {e}")
-
-    # Parser 4 — soil phase (.4/.5/.6 file, input level is passed)
-    try:
-        _collect(parser_4.run_pipeline(
-            csv_path     = job.csv_p4,
-            crop_id      = job.crop_id,
-            input_level  = job.input_level,
-            crops = job.wm.crops,
-            write_output = False,
-        ))
-    except Exception as e:
-        logger.warning(f"parser_4 [{job.output_filename}]: {e}")
-
-    if not sq_buckets:
-        logger.error(f"NO DATA [{job.output_filename}] — all parsers empty")
-        _insert_record(job, "failed")
-        return False
-
-    # Merge and write xlsx — one sheet per SQ
-    try:
-        with pd.ExcelWriter(job.output_path, engine="openpyxl") as writer:
-            for sq_label in ALL_SQ_LABELS:
-                frames = sq_buckets.get(sq_label)
-                if not frames:
-                    continue
-                # concat WITHOUT ignore_index preserves string index labels
-                merged = pd.concat(frames)
-                merged.to_excel(writer, sheet_name=sq_label, header=False)
-
-        _insert_record(job, "success")
-        logger.debug(f"OK: {job.output_path}")
-        return True
-
-    except Exception as e:
-        logger.error(f"WRITE FAILED [{job.output_filename}]: {e}")
-        if os.path.exists(job.output_path):
-            os.remove(job.output_path)
-        _insert_record(job, "failed")
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Job generator
-# ---------------------------------------------------------------------------
-
-def _generate_jobs() -> List[PipelineJob]:
-    """
-    Build the full job list.
-
-    For each water management system:
-      1. Detect which crop IDs are actually present in its CSV files
-      2. For each available input level (only if the .4/.5/.6 file exists):
-         - skip if no file on disk
-         - generate jobs only for detected crops × pH modes × textures
-    """
-    jobs: List[PipelineJob] = []
-
-    for wm in WATER_CONFIGS:
-        # Detect available crops for this water management system
-        available_crop_ids = detect_available_crops(wm.csv_p1)
-        if not available_crop_ids:
-            logger.warning(f"[{wm.name}] No crops detected — skipping entire system")
-            continue
-
-        logger.info(
-            f"[{wm.name}] Detected {len(available_crop_ids)} crops "
-            f"(IDs {min(available_crop_ids)}–{max(available_crop_ids)})"
-        )
-
-        for input_level, csv_p4_path in wm.csv_p4_map.items():
-            # Skip this input level if the corresponding soil phase file is missing
-            if not os.path.exists(csv_p4_path):
-                logger.info(
-                    f"[{wm.name}] {input_level.value} skipped "
-                    f"— file not found: {csv_p4_path}"
-                )
+            if os.path.exists(out_path):
+                logger.debug(f"SKIP (exists): {out_path}")
                 continue
 
-            for crop_id in sorted(available_crop_ids):
-                crop_info = wm.crops.get(crop_id)
-                if not crop_info:
-                    continue   # crop ID exists in CSV but not in constants — skip
-                
-                crop_name = crop_info["name"]
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
+            if not sq_dict:
+                logger.error(f"NO DATA [{out_path}]")
+                insert_record(conn, crop_id=crop_id, crop_name=crop_name,
+                              wm_name=wm.name, input_level=input_level.value,
+                              ph_mode=ph_mode, texture_class=texture_class,
+                              filepath=out_path, status="failed")
+                all_ok = False
+                continue
+
+            # Write CSVs for this level into its own subdir
+            level_dir = os.path.join(tmp, input_level.value)
+            os.makedirs(level_dir, exist_ok=True)
+            for sq_label, df in sq_dict.items():
+                write_sq_df_to_csv(df, os.path.join(level_dir, f"{sq_label}.csv"))
+
+            try:
+                _write_xlsx(sq_dict, out_path)
+            except Exception as e:
+                logger.error(f"WRITE FAILED [{out_path}]: {e}")
+                if os.path.exists(out_path): os.remove(out_path)
+                insert_record(conn, crop_id=crop_id, crop_name=crop_name,
+                              wm_name=wm.name, input_level=input_level.value,
+                              ph_mode=ph_mode, texture_class=texture_class,
+                              filepath=out_path, status="failed")
+                all_ok = False
+                continue
+
+            insert_record(conn, crop_id=crop_id, crop_name=crop_name,
+                          wm_name=wm.name, input_level=input_level.value,
+                          ph_mode=ph_mode, texture_class=texture_class,
+                          filepath=out_path, status="success")
+            logger.debug(f"OK: {out_path}")
+
+    return all_ok
+
+
+def run_full_pipeline() -> None:
+    ensure_table()
+
+    total = sum(
+        len(wm.crops) * 2 * len(TEXTURE_CLASSES)   # one trio call per crop × ph × texture
+        for wm in WATER_SYSTEMS
+    )
+    logger.info(f"Pipeline start — {total} trio jobs across {len(WATER_SYSTEMS)} water systems")
+
+    succeeded = failed = done = 0
+
+    with sqlite3.connect(DB_PATH) as conn:
+        for wm in WATER_SYSTEMS:
+            for crop_id, crop_info in sorted(wm.crops.items()):
+                crop_name = crop_info["name"]
                 for ph_mode, ph_value in [("acidic", PH_ACIDIC), ("basic", PH_BASIC)]:
                     for texture_class in TEXTURE_CLASSES:
-                        jobs.append(PipelineJob(
-                            crop_id       = crop_id,
-                            crop_name     = crop_name,
-                            wm            = wm,
-                            input_level   = input_level,
-                            ph_mode       = ph_mode,
-                            ph_value      = ph_value,
-                            texture_class = texture_class,
-                            csv_p4        = csv_p4_path,
-                        ))
-
-    return jobs
-
-
-# ---------------------------------------------------------------------------
-# Main runner
-# ---------------------------------------------------------------------------
-
-def run_full_pipeline(max_workers: int = 8) -> None:
-    """
-    Generate all valid outputs in parallel and record results in edaphic.db.
-
-    Parameters
-    ----------
-    max_workers : parallel threads (I/O-bound; 8–16 recommended)
-    """
-    ensure_table()   # safe on existing DB — CREATE IF NOT EXISTS only
-
-    jobs  = _generate_jobs()
-    total = len(jobs)
-
-    logger.info(
-        f"Pipeline starting — {total} jobs | "
-        f"{len(WATER_CONFIGS)} water systems | workers={max_workers}"
-    )
-
-    if total == 0:
-        logger.warning("No jobs generated — check that CSV files exist on disk.")
-        return
-
-    succeeded    = 0
-    failed       = 0
-    counter_lock = threading.Lock()
-
-    def _tracked(job: PipelineJob) -> None:
-        nonlocal succeeded, failed
-        ok = _run_job(job)
-        with counter_lock:
-            if ok:
-                succeeded += 1
-            else:
-                failed += 1
-            done = succeeded + failed
-            if done % 100 == 0 or done == total:
-                logger.info(f"Progress {done}/{total} | ok={succeeded} fail={failed}")
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_tracked, job) for job in jobs]
-        for _ in as_completed(futures):
-            pass
-        
+                        ok = run_one(wm, crop_id, crop_name,
+                                     ph_mode, ph_value,
+                                     texture_class, conn)
+                        done += 1
+                        if ok: succeeded += 1
+                        else:  failed += 1
+                        if done % 100 == 0 or done == total:
+                            logger.info(
+                                f"Progress {done}/{total} | "
+                                f"ok={succeeded} fail={failed}"
+                            )
 
     logger.info(f"Done — {succeeded} succeeded, {failed} failed out of {total}")
     logger.info(f"DB  → {os.path.abspath(DB_PATH)}")
     logger.info(f"Log → {os.path.abspath(LOG_PATH)}")
-
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    run_full_pipeline(max_workers=8)
+    run_full_pipeline()

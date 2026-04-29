@@ -36,7 +36,7 @@ class RatingCurve:
 
 @dataclass
 class AttributePair:
-    """Binds a canonical attribute name (e.g. 'OC', 'CEC_clay', 'SPH')
+    """Binds a canonical attribute name (e.g. 'OC', 'CECclay', 'SPH')
     to its rating curve for a specific crop."""
     attribute_name: str
     rating_curve:   RatingCurve

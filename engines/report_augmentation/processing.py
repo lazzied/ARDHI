@@ -275,6 +275,7 @@ class Output:
         for layer in group.layers:
             self.to_csv(layer, f"{temp_folder}/{layer.layer}.csv")
         merge_csvs_to_xlsx(folder=temp_folder, output_file=output_path)
+        return output_path
 
 
 if __name__ == "__main__":

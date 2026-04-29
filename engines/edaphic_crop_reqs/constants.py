@@ -106,8 +106,8 @@ CROPS_DRIP_IRRIGATION: dict[int, dict] = {
 # Appendix header -> canonical attribute name.
 # The right-hand side MUST be in CANONICAL_ATTRIBUTES.
 # Changes vs. the legacy map:
-#   CECclay  -> CEC_clay   (canonical rename)
-#   CECsoil  -> CEC_soil   (canonical rename)
+#   CECclay  -> CECclay   (canonical rename)
+#   CECsoil  -> CECsoil   (canonical rename)
 #   CF       -> GRC        (canonical rename: "gravel / coarse fragments")
 #   GSP      -> REMOVED    (not in canonical; Tunisia has no permafrost)
 #   SPR, OSD -> added      (present in canonical; produced downstream by
@@ -117,7 +117,7 @@ ATTRIBUTE_TO_HEADER: Dict[str, list[str]] = {
     "OC":       ["Soil Organic Carbon (SOC % weight)"],
     "pH":       ["Soil Reaction (pHH2O)"],
     "TEB":      ["Total Exchangeable Bases (TEB)"],
-    "CEC_clay": ["Cation Exchange Capacity of Clay (CECclay)"],
+    "CECclay": ["Cation Exchange Capacity of Clay (CECclay)"],
     "BS":       ["Base Saturation (BS)"],
     "RSD":      ["Rooting / Soil Depth"],
     "EC":       ["Electrical Conductivity (EC)"],
@@ -127,7 +127,7 @@ ATTRIBUTE_TO_HEADER: Dict[str, list[str]] = {
     "GYP":      ["Calcium Sulphate (GYP)"],
     "SPR":      ["Vertic Soil Properties", "Soil Property Rating"],
     "VSP":      ["Vertic Soil Properties"],
-    "CEC_soil": ["Cation Exchange Capacity Soil (CECsoil)"],
+    "CECsoil": ["Cation Exchange Capacity Soil (CECsoil)"],
     "TXT":      ["Soil Texture Classes"],
     "DRG":      ["Drainage Class"],
     "SPH":      ["Soil Phase Rating", "Soil Phase"],
@@ -140,7 +140,7 @@ ATTR_ABBREV_MAP: Dict[str, list[str]] = {
     "SOC":  ["OC"],
     "pH":   ["pH"],
     "TEB":  ["TEB"],
-    "CECa": ["CEC_clay"],
+    "CECa": ["CECclay"],
     "BS":   ["BS"],
     "RC":   ["RSD"],
     "CF":   ["GRC"],
@@ -149,7 +149,7 @@ ATTR_ABBREV_MAP: Dict[str, list[str]] = {
     "CCB":  ["CCB"],
     "GYP":  ["GYP"],
     "V":    ["VSP", "SPR"],
-    "CECs": ["CEC_soil"],
+    "CECs": ["CECsoil"],
     "G":    ["OSD"],
 }
 

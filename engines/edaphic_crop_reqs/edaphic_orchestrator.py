@@ -11,12 +11,13 @@ Architecture is identical to the legacy orchestrator. The only changes:
   * No structural / control-flow changes to the parser registry loop.
 """
 from __future__ import annotations
+import os
 
 import pandas as pd
 from collections import defaultdict
 from typing import Dict, List
 
-from engines.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
+from engines.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER 
 from engines.edaphic_crop_reqs.models import InputLevel
 from engines.edaphic_crop_reqs.utils_functions import write_sq_df_to_csv
 
@@ -26,6 +27,7 @@ from engines.edaphic_crop_reqs import (
     appendix6_3_3_parser as parser_3,
     appendix6_3_4_parser as parser_4,
 )
+from engines.edaphic_crop_reqs.xlxs_merger import merge_csvs_to_xlsx
 
 # ---------------------------------------------------------------------------
 # Parser registry
@@ -58,6 +60,7 @@ def run_aggregator(
     ph_report:            float,
     texture_class_report: str,
     output_dir:           str = ".",
+    parser_registry:      list | None = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Run every registered parser pipeline, collect per-SQ DataFrames, merge
@@ -92,7 +95,9 @@ def run_aggregator(
     # Accumulate DataFrames per SQ across all parsers
     sq_buckets: Dict[str, List[pd.DataFrame]] = defaultdict(list)
 
-    for parser, csv_path, needs_input_level in PARSER_REGISTRY:
+    
+
+    for parser, csv_path, needs_input_level in parser_registry:
         parser_name = parser.__name__.split(".")[-1]
         full_name   = parser.__name__
         print(f"\n[Aggregator] Running {parser_name} ...")
@@ -136,25 +141,101 @@ def run_aggregator(
             continue
 
         merged = pd.concat(frames)
+        result[sq_label] = merged
+        
         out_path = f"{output_dir}/{sq_label}.csv"
         write_sq_df_to_csv(merged, out_path)
-        result[sq_label] = merged
         print(f"[Aggregator]   {sq_label}: merged {len(frames)} source(s), "
               f"{len(merged)} rows -> {out_path}")
 
 
     return result
 
+def run_trio_aggregators(
+    crops:                dict[int, dict],
+    crop_id:              int,
+    ph_report:            float,
+    texture_class_report: str,
+    output_dir:           str = ".",
+    parser_registry:      list | None = None,
+) -> Dict[str, Dict[str, pd.DataFrame]]:
+    """Run the full parser registry for every InputLevel, patch cross-level
+    missing rows/SQs, write per-level per-SQ CSVs, and return the complete
+    results structure: {input_level_value -> {sq_label -> DataFrame}}."""
+
+    if parser_registry is None:
+        parser_registry = PARSER_REGISTRY
+
+    # ------------------------------------------------------------------
+    # Run every level
+    # ------------------------------------------------------------------
+    results: Dict[str, Dict[str, pd.DataFrame]] = {}
+    for input_level in InputLevel:
+        results[input_level.value] = run_aggregator(
+            crops                = crops,
+            crop_id              = crop_id,
+            input_level          = input_level,
+            ph_report            = ph_report,
+            texture_class_report = texture_class_report,
+            output_dir           = output_dir,
+            parser_registry      = parser_registry,
+        )
+
+    # ------------------------------------------------------------------
+    # Patch cross-level missing rows / SQs (order is significant)
+    # ------------------------------------------------------------------
+    intermediate = results[InputLevel.INTERMEDIATE.value]
+    high         = results[InputLevel.HIGH.value]
+    low          = results[InputLevel.LOW.value]
+
+    # 1. intermediate misses SQ2 TXT_fct and TXT_val rows — copy from high SQ2
+    if "SQ2" in high and "SQ2" in intermediate:
+        missing_rows = high["SQ2"][high["SQ2"].index.isin(["TXT_fct", "TXT_val"])]
+        intermediate["SQ2"] = pd.concat([intermediate["SQ2"], missing_rows])
+
+    # 2. low misses SQ2 entirely — copy from (now-patched) intermediate SQ2
+    if "SQ2" in intermediate and "SQ2" not in low:
+        low["SQ2"] = intermediate["SQ2"].copy()
+
+    # 3. high misses SQ1 entirely — copy from intermediate SQ1
+    if "SQ1" in intermediate and "SQ1" not in high:
+        high["SQ1"] = intermediate["SQ1"].copy()
+
+    results[InputLevel.INTERMEDIATE.value] = intermediate
+    results[InputLevel.HIGH.value]         = high
+    results[InputLevel.LOW.value]          = low
+
+    # ------------------------------------------------------------------
+    # Write patched CSVs — one sub-directory per level
+    # ------------------------------------------------------------------
+    """
+    for level, sq_dict in results.items():
+        level_dir = f"{output_dir}/{level}"
+        os.makedirs(level_dir, exist_ok=True)   # ← add this
+
+        for sq_label, df in sq_dict.items():
+            out_path = f"{level_dir}/{sq_label}.csv"
+            write_sq_df_to_csv(df, out_path)
+            print(f"[TrioAggregator] {level}/{sq_label} -> {out_path} ({len(df)} rows)")
+    """
+
+    return results
+    
 
 if __name__ == "__main__":
-    results = run_aggregator(
+    results = run_trio_aggregators(
         crops                = CROPS_RAINFED_SPRINKLER,
         crop_id              = 4,
-        input_level          = InputLevel.INTERMEDIATE,
         ph_report            = 6.0,
         texture_class_report = "fine",
         output_dir           = "engines/edaphic_crop_reqs/results",
+        parser_registry      = PARSER_REGISTRY,
     )
-    for sq_label, df in results.items():
-        print(f"\n--- {sq_label} preview ({len(df)} rows) ---")
-        print(df.head())
+    for level, sq_dict in results.items():
+        merge_csvs_to_xlsx(
+            f"engines/edaphic_crop_reqs/results/{level}",
+            f"engines/edaphic_crop_reqs/results/{level}/merged_output.xlsx",
+        )
+        for sq_label, df in sq_dict.items():
+            print(f"\n--- {level}/{sq_label} preview ({len(df)} rows) ---")
+            print(df.head())

@@ -87,7 +87,7 @@ def normalize_input_level(
 def parse_attribute_name(penalties_label: str) -> list[str] | None:
     """Extract the canonical attribute name from a penalties-class label.
 
-    e.g. 'I+L SOC 100' -> 'OC',   'H CECa 100' -> 'CEC_clay'.
+    e.g. 'I+L SOC 100' -> 'OC',   'H CECa 100' -> 'CECclay'.
 
     Returns None when the abbreviation is not in ATTR_ABBREV_MAP, or the
     mapped name is not in CANONICAL_ATTRIBUTES. Both cases cause the block
@@ -336,7 +336,7 @@ if __name__ == "__main__":
         csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv",
         crop_id      = 4,
         crops        = CROPS_RAINFED_SPRINKLER,
-        input_level  = InputLevel.HIGH,
+        input_level  = InputLevel.INTERMEDIATE,
         ph_report    = 6.0,
         output_dir   = "engines/edaphic_crop_reqs/results",
         write_output = True,
