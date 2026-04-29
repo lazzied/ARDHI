@@ -151,6 +151,59 @@ def run_aggregator(
 
     return result
 
+def _patch_sph_from_sq7(sq_dict: Dict[str, pd.DataFrame]) -> None:
+    """Append SPH categories from SQ7 that are missing in SQ3-SQ6.
+
+    For each of SQ3, SQ4, SQ5, SQ6, find the SPH_val entries present in SQ7
+    but absent from the current sheet, then append them — together with the
+    corresponding SPH_fct values from SQ7, in the same order — at the end of
+    the existing SPH_val / SPH_fct rows. Strictly additive: existing entries
+    are never modified, removed, reordered, or duplicated. SQ7 is not touched.
+    """
+    sq7 = sq_dict.get("SQ7")
+    if sq7 is None or "SPH_val" not in sq7.index or "SPH_fct" not in sq7.index:
+        return
+
+    def _first_row(df: pd.DataFrame, label: str) -> pd.Series:
+        sel = df.loc[label]
+        return sel.iloc[0] if isinstance(sel, pd.DataFrame) else sel
+
+    sq7_vals = _first_row(sq7, "SPH_val").dropna().tolist()
+    sq7_fcts = _first_row(sq7, "SPH_fct").dropna().tolist()
+    if len(sq7_vals) != len(sq7_fcts):
+        print("[Aggregator] WARNING — SQ7 SPH_val/SPH_fct length mismatch; skipping patch")
+        return
+    sq7_pairs = list(zip(sq7_vals, sq7_fcts))
+
+    for sq_label in ("SQ3", "SQ4", "SQ5", "SQ6"):
+        df = sq_dict.get(sq_label)
+        if df is None or "SPH_val" not in df.index or "SPH_fct" not in df.index:
+            continue
+
+        existing = set(_first_row(df, "SPH_val").dropna().tolist())
+        missing  = [(v, f) for v, f in sq7_pairs if v not in existing]
+        if not missing:
+            continue
+
+        # Allocate new column slots at the right edge of the frame.
+        int_cols = [c for c in df.columns if isinstance(c, int)]
+        next_col = (max(int_cols) + 1) if int_cols else len(df.columns)
+        new_cols = list(range(next_col, next_col + len(missing)))
+        for c in new_cols:
+            df[c] = pd.NA
+
+        # Write into the FIRST SPH_val / SPH_fct rows (handles concat-duplicates safely).
+        val_pos = int((df.index == "SPH_val").argmax())
+        fct_pos = int((df.index == "SPH_fct").argmax())
+        for c, (val, fct) in zip(new_cols, missing):
+            col_pos = df.columns.get_loc(c)
+            df.iat[val_pos, col_pos] = val
+            df.iat[fct_pos, col_pos] = fct
+
+        sq_dict[sq_label] = df
+        print(f"[Aggregator]   SQ7→{sq_label}: appended {len(missing)} SPH categor"
+              f"{'y' if len(missing) == 1 else 'ies'}")
+        
 def run_trio_aggregators(
     crops:                dict[int, dict],
     crop_id:              int,
@@ -208,7 +261,9 @@ def run_trio_aggregators(
     # ------------------------------------------------------------------
     # Write patched CSVs — one sub-directory per level
     # ------------------------------------------------------------------
-    """
+    for level_dict in results.values():
+        _patch_sph_from_sq7(level_dict)
+   
     for level, sq_dict in results.items():
         level_dir = f"{output_dir}/{level}"
         os.makedirs(level_dir, exist_ok=True)   # ← add this
@@ -217,8 +272,9 @@ def run_trio_aggregators(
             out_path = f"{level_dir}/{sq_label}.csv"
             write_sq_df_to_csv(df, out_path)
             print(f"[TrioAggregator] {level}/{sq_label} -> {out_path} ({len(df)} rows)")
-    """
+    
 
+        
     return results
     
 

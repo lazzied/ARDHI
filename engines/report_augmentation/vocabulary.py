@@ -22,7 +22,7 @@ HWSD_MAPPER= {
     "DRAINAGE": "DRG",
     "ESP": "ESP",
     "ELEC_COND": "EC",
-    "WRB_PHASES": "SPH",
+    "PHASE1": "SPH",
     "ADD_PROP": ["OSD", "SPR", "VSP"],
     "GYPSUM": "GYP",
     "TCARBON_EQ": "CCB", 

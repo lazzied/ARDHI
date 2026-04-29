@@ -1,5 +1,6 @@
 import sqlite3
 import difflib
+import numpy as np
 from rasterio.transform import rowcol
 from pyaez import SoilConstraints
 import rasterio 
@@ -192,6 +193,7 @@ def get_edaphic_paths(crop_name: str,
             (input_level.value, "rainfed_sprinkler", validated_crop_name))
         row = cursor.fetchone()
         rainfed_tiff_path = row["file_path"].strip() if row else None
+        print(f"Found rainfed/sprinkler path: {rainfed_tiff_path}")
         
         if water_supply == WaterSupply.RAINFED:
             return rainfed_tiff_path, rainfed_tiff_path
@@ -221,49 +223,35 @@ def get_edaphic_paths(crop_name: str,
 def calculate_fc5():
     pass
 
+INPUT_LEVEL_TO_PYAEZ = {
+    InputLevel.LOW:          "L",
+    InputLevel.INTERMEDIATE: "I",
+    InputLevel.HIGH:         "H",
+}
+
 def calculate_fc4_yield(
-    edaphic_path_rainfed: str,
+    edaphic_path_rainfed:   str,
     edaphic_path_irrigated: str,
-    soil_prop_path: str,
-    water_supply: WaterSupply,
-    soil_smu_id: int,
-    yield_in: float,
+    soil_prop_path:         str,
+    water_supply:           WaterSupply,
+    input_level:            InputLevel,
+    soil_smu_id:            int,
+    yield_in:               float,
 ):
     soil_constraints = SoilConstraints.SoilConstraints()
+    soil_constraints.importSoilReductionSheet(edaphic_path_rainfed, edaphic_path_irrigated)
 
-    # Importing the excel sheet of soil  
-    soil_constraints.importSoilReductionSheet(edaphic_path_rainfed,edaphic_path_irrigated)
+    ws_index = WaterSupplyIndex[water_supply.name].value     # "R" or "I"
+    il_index = INPUT_LEVEL_TO_PYAEZ[input_level]             # "L", "I", or "H"
 
-    ws_index = WaterSupplyIndex[water_supply.name].value  # "R" or "I"
-    # Soil Qualities 
-    soil_constraints.calculateSoilQualities(ws_index, soil_prop_path, soil_prop_path) 
-    soil_constraints.calculateSoilRatings(ws_index) 
+    soil_constraints.calculateSoilQualities(ws_index, soil_prop_path, soil_prop_path)
+    soil_constraints.calculateSoilRatings(il_index)
 
-    # Extracting soil qualities 
-    #soil_ratings = soil_constraints.getSoilRatings() 
+    SOIL_SMU_ID = np.array([[soil_smu_id]], dtype=np.int64)
+    YIELD_IN    = np.array([[yield_in]],    dtype=float)
 
-    SOIL_SMU_ID = [[soil_smu_id]] #
-    YIELD_IN = [[yield_in]] 
-
-    # Soil Constraints 
     yield_out = soil_constraints.applySoilConstraints(SOIL_SMU_ID, YIELD_IN)
-
-    return yield_out[0][0]
-
-# Extract scalar from 2D array
-    # FC0 groups (FC1 / FC2 / FC3) ;; this is the input ; the output is the new yield with soil constraints applied
-    # then the yield will be fed to the terrain constraints; and outputs the final yield
-    
-    """
-    Function Arguments 
-    soil_map 2D NumPy array, corresponding to soil unit. Each pixel value must be SMU. This 
-    code is used to match the soil rating with the input yield. 
-    yield_in 2D NumPy array, corresponding to the yield before applying the soil reduction 
-    factors (either rainfed or irrigated conditions) 
-    Function Returns 
-    yield_out 2D NumPy array. The yield reduced by soil-related factors [same unit as 
-    yield_in]    
-    """
+    return float(yield_out[0, 0])
     
 def orchestrator(coord:tuple[float,float], crop_name: str, input_level: InputLevel, water_supply: WaterSupply, irrigation_type: IrrigationType = None,): #coord is (lat, lon)
     
@@ -277,6 +265,7 @@ def orchestrator(coord:tuple[float,float], crop_name: str, input_level: InputLev
         edaphic_path_irrigated=edaphic_path_irrigated,
         soil_prop_path=soil_prop_path,
         water_supply=water_supply,
+        input_level=input_level,
         soil_smu_id=soil_smu_id,
         yield_in=yield_in  # Example input yield
     )
