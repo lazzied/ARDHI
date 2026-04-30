@@ -7,7 +7,7 @@ import rasterio
 from contextlib import closing
 from enum import Enum
 from engines.hwsd2_prop.hwsd_prop_generator import HWSDPropGenerator
-from engines.report_augmentation.processing import LayerInterpolator, Output
+from engines.OCR_processing.report_augmentation.processing import LayerInterpolator, Output
 from gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
 from engines.edaphic_crop_reqs.constants import (
     CROPS_RAINFED_SPRINKLER,
@@ -47,7 +47,16 @@ class WaterSupply(Enum):
 class WaterSupplyIndex(Enum):
     RAINFED   = "R"
     IRRIGATED = "I"
+    
+class pH_level(Enum):
+    ACIDIC = "acidic"
+    BASIC = "basic"
 
+class Texture(Enum):
+    FINE= "fine"
+    MEDIUM = "medium"
+    COARSE= "coarse"
+    
 
 INPUT_LEVEL_TO_PYAEZ = {
     InputLevel.LOW:          "L",
@@ -259,14 +268,14 @@ def get_smu_value(coord: tuple[float, float]) -> int | None:
         return val
 
 
-def get_hwsd_soil_properties(smu_id: int, output_path: str,filename: str) -> str:
+def get_hwsd_soil_properties(smu_id: int, output_path: str, filename: str, fao_90_class: str) -> str:
     generator = HWSDPropGenerator(smu_id=smu_id, hwsd_db=HWSD_DB)
-    return generator.orchestrator(output_path, filename)
+    return generator.orchestrator(output_path, filename, fao_90_class)
 
 
-def get_farmer_augmented_soil_properties(report, smu_id: int, output_path: str, filename: str) -> str:
+def get_farmer_augmented_soil_properties(report, smu_id: int, output_path: str, filename: str, fao_90_class: str) -> str:
     interpolator = LayerInterpolator(hwsd_db=HWSD_DB)
-    group = interpolator.layers_orchestrator(report, smu_id)
+    group = interpolator.layers_orchestrator(report, smu_id, fao_90_class)
     interpolator.close()
 
     return Output().to_xlsx(group, output_path,filename)
@@ -288,6 +297,10 @@ def _query_edaphic_path(
     input_level: InputLevel,
     water_supply_str: str,
     crop_name: str,
+    ph_level: pH_level,
+    texture_class: Texture,
+    
+    
 ) -> str | None:
     cursor.execute(
         """
@@ -295,8 +308,11 @@ def _query_edaphic_path(
         WHERE input_level = ?
           AND water_supply = ?
           AND crop_name = ?
+          AND ph_level = ?
+          AND texture_class = ?
+    
         """,
-        (input_level.value, water_supply_str, crop_name),
+        (input_level.value, water_supply_str, crop_name,ph_level.value,texture_class.value),
     )
     row = cursor.fetchone()
     return row["file_path"].strip() if row else None
@@ -306,6 +322,8 @@ def get_edaphic_paths(
     crop_name: str,
     input_level: InputLevel,
     water_supply: WaterSupply,
+    ph_level: pH_level,
+    texture_class: Texture,
     irrigation_type: IrrigationType | None = None,
 ) -> tuple[str, str]:
     validated_crop_name = validate_crop_name(crop_name, water_supply, irrigation_type)
@@ -320,6 +338,8 @@ def get_edaphic_paths(
             input_level=input_level,
             water_supply_str="rainfed_sprinkler",
             crop_name=validated_crop_name,
+            ph_level=ph_level,
+            texture_class=texture_class,
         )
         print(f"[edaphic_paths] rainfed/sprinkler -> {rainfed_tiff_path}")
 
@@ -334,6 +354,8 @@ def get_edaphic_paths(
             input_level=input_level,
             water_supply_str=_IRRIGATION_TO_DB_STR[irrigation_type],
             crop_name=validated_crop_name,
+            ph_level=ph_level,
+            texture_class=texture_class,
         )
         print(f"[edaphic_paths] {_IRRIGATION_TO_DB_STR[irrigation_type]} -> {irrigated_tiff_path}")
 
@@ -382,6 +404,8 @@ def fc4_yield_orchestrator(
     input_level: InputLevel,
     water_supply: WaterSupply,
     soil_prop_path: str,
+    ph_level: pH_level,
+    texture_class: Texture,
     irrigation_type: IrrigationType | None = None,
 ) -> float:
     print("\n" + "=" * 60)
@@ -395,7 +419,7 @@ def fc4_yield_orchestrator(
         raise ValueError(f"No SMU value found at coordinates {coord} (nodata).")
 
     edaphic_path_rainfed, edaphic_path_irrigated = get_edaphic_paths(
-        crop_name, input_level, water_supply, irrigation_type,
+        crop_name, input_level, water_supply, ph_level, texture_class, irrigation_type,
     )
     yield_in = get_agroclimatic_yield(input_level, water_supply, crop_name, coord)
 
@@ -419,6 +443,8 @@ def calculate_fc5(
     crop_name: str,
     coordinates: tuple[float, float],
     hwsd_soil_prop_path: str,
+    ph_level: pH_level,
+    texture_class: Texture,
     irrigation_type: IrrigationType | None = None,
 ) -> float | None:
     print("\n" + "=" * 60)
@@ -434,6 +460,8 @@ def calculate_fc5(
         input_level=input_level,
         water_supply=water_supply,
         soil_prop_path=hwsd_soil_prop_path,
+        ph_level=ph_level,
+        texture_class=texture_class,
         irrigation_type=irrigation_type,
     )
     fc5 = final_yield / fc4_yield if fc4_yield else None
@@ -451,6 +479,8 @@ def main(
     coord: tuple[float, float],
     report_soil_prop_path: str,
     hwsd_soil_prop_path: str,
+    ph_level: pH_level,
+    texture_class: Texture,
     irrigation_type: IrrigationType | None = None,
 ) -> float:
     # Yatt = Ypot * (fc1*fc2*fc3*fc4) * fc5
@@ -471,13 +501,15 @@ def main(
         input_level=input_level,
         water_supply=water_supply,
         soil_prop_path=report_soil_prop_path,
+        ph_level=ph_level,
+        texture_class=texture_class,
         irrigation_type=irrigation_type,
     )
 
     print("\n>>> STEP 2: FC5 (uses HWSD soil properties internally)")
     fc5 = calculate_fc5(
         input_level, water_supply, crop_name, coord,
-        hwsd_soil_prop_path, irrigation_type,
+        hwsd_soil_prop_path, ph_level, texture_class, irrigation_type,
     )
 
     print("\n>>> STEP 3: Final yield = fc4_yield_report * fc5")
@@ -488,22 +520,39 @@ def main(
     print("#" * 70 + "\n")
     return final_yield
 
+def get_fao_90(smu_id):
+    with sqlite3.connect("hwsd.db") as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT FAO90 FROM HWSD2_SMU
+            WHERE HWSD2_SMU_ID = ?
+            """,
+            (smu_id,),
+        )
+        row = cursor.fetchone()
+    return row["FAO90"].strip() if row else None
 
 if __name__ == "__main__":
     coord                 = (36.858096, 9.962084)
     crop_name             = "maize"
     input_level           = InputLevel.HIGH
     water_supply          = WaterSupply.RAINFED
-    irrigation_type       = None  # Not needed for rainfed
+    irrigation_type       = None  # Not needed for rainfed   
+    ph_level              = pH_level.BASIC     # pH class for the edaphic query
+    texture_class         = Texture.MEDIUM     # texture class for the edaphic query
+    
     smu_id = get_smu_value(coord)
+    fao_90_class = get_fao_90(smu_id)
     
-    report_json_path = "engines/report_augmentation/rapport_values.json"
+    report_json_path = "engines/OCR_processing/report_augmentation/rapport_values.json"
     
-    report_dir =  "engines/report_augmentation/results"
+    report_dir =  "engines/OCR_processing/report_augmentation/results"
     hwsd_dir   = "engines/hwsd2_prop/results"
-    report_soil_prop_path = get_farmer_augmented_soil_properties(report_json_path,smu_id,report_dir,"report_augmented_layers") # set as needed
+    report_soil_prop_path = get_farmer_augmented_soil_properties(report_json_path, smu_id, report_dir, "report_augmented_layers", fao_90_class) # set as needed
     print(f"Report-augmented soil properties path: {report_soil_prop_path}")
-    hwsd_soil_prop_path  = get_hwsd_soil_properties(smu_id,hwsd_dir,"hwsd_augmented_layers")         # set as needed
+    hwsd_soil_prop_path  = get_hwsd_soil_properties(smu_id, hwsd_dir, "hwsd_augmented_layers", fao_90_class)         # set as needed
     print(f"HWSD soil properties path: {hwsd_soil_prop_path}")
     
     final_yield = main(
@@ -513,6 +562,8 @@ if __name__ == "__main__":
         coord=coord,
         report_soil_prop_path=report_soil_prop_path,
         hwsd_soil_prop_path=hwsd_soil_prop_path,
+        ph_level=ph_level,
+        texture_class=texture_class,
         irrigation_type=irrigation_type,
     )
     print(f"\n=== FINAL YIELD: {final_yield} ===")

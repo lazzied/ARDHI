@@ -4,7 +4,7 @@ edaphic_pipeline.py
 Sequential pipeline built on top of `run_aggregator`.
 
 For every valid combination of:
-    water_system × crop × input_level × ph_mode × texture_class
+    water_system × crop × input_level × ph_level × texture_class
 the orchestrator is called once. Its per-SQ DataFrames are merged into one
 xlsx (one sheet per SQ). One row per output is recorded in `edaphic_outputs`.
 
@@ -152,7 +152,7 @@ def ensure_table() -> None:
                 crop_name        TEXT    NOT NULL,
                 water_supply TEXT    NOT NULL,
                 input_level      TEXT    NOT NULL,
-                ph_mode          TEXT    NOT NULL,
+                ph_level          TEXT    NOT NULL,
                 texture_class    TEXT    NOT NULL,
                 file_path         TEXT    NOT NULL UNIQUE,
                 generated_at     TEXT    NOT NULL,
@@ -168,20 +168,20 @@ def ensure_table() -> None:
 def insert_record(
     conn: sqlite3.Connection,
     *, crop_id: int, crop_name: str, wm_name: str, input_level: str,
-    ph_mode: str, texture_class: str, filepath: str, status: str,
+    ph_level: str, texture_class: str, filepath: str, status: str,
 ) -> None:
     conn.execute(
         """
         INSERT INTO edaphic_outputs
             (crop_id, crop_name, water_supply, input_level,
-             ph_mode, texture_class, file_path, generated_at, status)
+             ph_level, texture_class, file_path, generated_at, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(file_path) DO UPDATE SET
             status       = excluded.status,
             generated_at = excluded.generated_at
         """,
         (crop_id, crop_name, wm_name, input_level,
-         ph_mode, texture_class, os.path.abspath(filepath),
+         ph_level, texture_class, os.path.abspath(filepath),
          datetime.now(timezone.utc).isoformat(), status),
     )
     conn.commit()
@@ -196,10 +196,10 @@ def _safe_crop(name: str) -> str:
 
 
 def _output_path(wm: WaterSystem, crop_name: str, input_level: InputLevel,
-                 ph_mode: str, texture_class: str) -> str:
+                 ph_level: str, texture_class: str) -> str:
     fname = (
         f"{_safe_crop(crop_name)}_{wm.name}"
-        f"_{input_level.value.upper()}_{ph_mode}_{texture_class}.xlsx"
+        f"_{input_level.value.upper()}_{ph_level}_{texture_class}.xlsx"
     )
     return os.path.join(OUTPUT_ROOT, wm.folder, _safe_crop(crop_name), fname)
 
@@ -219,7 +219,7 @@ def _write_xlsx(sq_dict: Dict[str, pd.DataFrame], out_path: str) -> None:
 # ---------------------------------------------------------------------------
 
 def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
-            ph_mode: str, ph_value: float,
+            ph_level: str, ph_value: float,
             texture_class: str, conn: sqlite3.Connection) -> bool:
 
     with tempfile.TemporaryDirectory(prefix="edaphic_") as tmp:
@@ -235,10 +235,10 @@ def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
         except Exception as e:
             logger.error(f"FAIL [{crop_name}] orchestrator raised: {e}")
             for input_level in wm.valid_input_levels:
-                out_path = _output_path(wm, crop_name, input_level, ph_mode, texture_class)
+                out_path = _output_path(wm, crop_name, input_level, ph_level, texture_class)
                 insert_record(conn, crop_id=crop_id, crop_name=crop_name,
                               wm_name=wm.name, input_level=input_level.value,
-                              ph_mode=ph_mode, texture_class=texture_class,
+                              ph_level=ph_level, texture_class=texture_class,
                               filepath=out_path, status="failed")
             return False
 
@@ -246,7 +246,7 @@ def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
         all_ok = True
         for input_level in wm.valid_input_levels:
             sq_dict  = all_results.get(input_level.value, {})
-            out_path = _output_path(wm, crop_name, input_level, ph_mode, texture_class)
+            out_path = _output_path(wm, crop_name, input_level, ph_level, texture_class)
 
             if os.path.exists(out_path):
                 logger.debug(f"SKIP (exists): {out_path}")
@@ -258,7 +258,7 @@ def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
                 logger.error(f"NO DATA [{out_path}]")
                 insert_record(conn, crop_id=crop_id, crop_name=crop_name,
                               wm_name=wm.name, input_level=input_level.value,
-                              ph_mode=ph_mode, texture_class=texture_class,
+                              ph_level=ph_level, texture_class=texture_class,
                               filepath=out_path, status="failed")
                 all_ok = False
                 continue
@@ -276,14 +276,14 @@ def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
                 if os.path.exists(out_path): os.remove(out_path)
                 insert_record(conn, crop_id=crop_id, crop_name=crop_name,
                               wm_name=wm.name, input_level=input_level.value,
-                              ph_mode=ph_mode, texture_class=texture_class,
+                              ph_level=ph_level, texture_class=texture_class,
                               filepath=out_path, status="failed")
                 all_ok = False
                 continue
 
             insert_record(conn, crop_id=crop_id, crop_name=crop_name,
                           wm_name=wm.name, input_level=input_level.value,
-                          ph_mode=ph_mode, texture_class=texture_class,
+                          ph_level=ph_level, texture_class=texture_class,
                           filepath=out_path, status="success")
             logger.debug(f"OK: {out_path}")
 
@@ -305,10 +305,10 @@ def run_full_pipeline() -> None:
         for wm in WATER_SYSTEMS:
             for crop_id, crop_info in sorted(wm.crops.items()):
                 crop_name = crop_info["name"]
-                for ph_mode, ph_value in [("acidic", PH_ACIDIC), ("basic", PH_BASIC)]:
+                for ph_level, ph_value in [("acidic", PH_ACIDIC), ("basic", PH_BASIC)]:
                     for texture_class in TEXTURE_CLASSES:
                         ok = run_one(wm, crop_id, crop_name,
-                                     ph_mode, ph_value,
+                                     ph_level, ph_value,
                                      texture_class, conn)
                         done += 1
                         if ok: succeeded += 1

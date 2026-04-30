@@ -5,8 +5,8 @@ import sqlite3
 from pathlib import Path                          # fix 5: was from zipfile
 
 from engines.edaphic_crop_reqs.xlxs_merger import merge_csvs_to_xlsx
-from engines.report_augmentation.models_and_io import AugmentedLayer, AugmentedLayersGroup
-from engines.report_augmentation.vocabulary import CLASS_ATTRIBUTES, HWSD_MAPPER, NUM_ATTRIBUTES
+from engines.OCR_processing.report_augmentation.models_and_io import AugmentedLayer, AugmentedLayersGroup
+from engines.OCR_processing.report_augmentation.vocabulary import CLASS_ATTRIBUTES, HWSD_MAPPER, NUM_ATTRIBUTES
 import csv
 
 def get_code_value(cursor, attribute: str, code) -> str | None:
@@ -54,10 +54,10 @@ class AugStrategy(AttributeStrategy):
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
 
-    def get_layers_value(self, attribute: str, layer: str = "D1"):
+    def get_layers_value(self, attribute: str, fao_90_class:str, layer: str = "D1" ):
         self.cursor.execute(
-            f"SELECT {attribute} FROM HWSD2_LAYERS WHERE HWSD2_SMU_ID = ? AND LAYER = ?",
-            (self.smu_id, layer)
+            f"SELECT {attribute} FROM HWSD2_LAYERS WHERE HWSD2_SMU_ID = ? AND LAYER = ? AND FAO90 = ?",
+            (self.smu_id, layer,fao_90_class)
         )
         row = self.cursor.fetchone()
         return row[attribute] if row else None
@@ -69,9 +69,9 @@ class AugStrategy(AttributeStrategy):
         row = self.cursor.fetchone()
         return row[code] if row else None
 
-    def get_SMU_value(self, attribute: str):
+    def get_SMU_value(self, attribute: str, fao_90_class:str):
         self.cursor.execute(
-            f"SELECT {attribute} FROM HWSD2_SMU WHERE HWSD2_SMU_ID = ?", (self.smu_id,)
+            f"SELECT {attribute} FROM HWSD2_SMU WHERE HWSD2_SMU_ID = ? AND FAO90 = ? ", (self.smu_id,fao_90_class)
         )
         row = self.cursor.fetchone()
         return row[attribute] if row else None
@@ -79,26 +79,26 @@ class AugStrategy(AttributeStrategy):
     def close(self):
         self.conn.close()
 
-    def compute(self, attr):
+    def compute(self, attr, fao_90_class):
         if attr == "TXT":
-            code_val = get_code_value(self.cursor, "TEXTURE_USDA", self.get_layers_value("TEXTURE_USDA"))
+            code_val = get_code_value(self.cursor, "TEXTURE_USDA", self.get_layers_value("TEXTURE_USDA", fao_90_class))
             self.augmented_attributes["TXT"] = code_val.lower() if code_val else None
             print("TXT from hwsd:", self.augmented_attributes["TXT"])
         if attr == "DRG":
-            self.augmented_attributes["DRG"] = self.get_layers_value("DRAINAGE")
+            self.augmented_attributes["DRG"] = self.get_layers_value("DRAINAGE", fao_90_class)
             print("DRG from hwsd:", self.augmented_attributes["DRG"])
         if attr == "OSD":
-            val = self.get_SMU_value("ADD_PROP")
+            val = self.get_SMU_value("ADD_PROP", fao_90_class)
             self.augmented_attributes["OSD"] = 1 if val == 2 else 0
         if attr in ("SPR", "VSP"):
-            val = self.get_SMU_value("ADD_PROP")
+            val = self.get_SMU_value("ADD_PROP", fao_90_class)
             self.augmented_attributes[attr] = 1 if val == 3 else 0  # fix: was hardcoded "OSD"
         if attr == "SPH":
-            code_val = get_code_value(self.cursor, "PHASE", self.get_layers_value("PHASE1"))
+            code_val = get_code_value(self.cursor, "PHASE", self.get_layers_value("PHASE1", fao_90_class))
             self.augmented_attributes["SPH"] = code_val.split(" ")[0] if code_val else "obstacle to roots no information"
             
         if attr == "RSD":
-            code_val = get_code_value(self.cursor, "ROOT_DEPTH", self.get_layers_value("ROOT_DEPTH"))
+            code_val = get_code_value(self.cursor, "ROOT_DEPTH", self.get_layers_value("ROOT_DEPTH", fao_90_class))
             SOIL_DEPTH = {
                 "Deep (> 100cm)": 150,
                 "Moderately Deep (< 100cm)": 75,
@@ -107,13 +107,13 @@ class AugStrategy(AttributeStrategy):
             }
             self.augmented_attributes["RSD"] = SOIL_DEPTH.get(code_val, 100)
         if attr == "GYP":
-            self.augmented_attributes["GYP"] = self.get_layers_value("GYPSUM") 
+            self.augmented_attributes["GYP"] = self.get_layers_value("GYPSUM", fao_90_class) 
         if attr == "GRC":
-            self.augmented_attributes["GRC"] = self.get_layers_value("COARSE")
+            self.augmented_attributes["GRC"] = self.get_layers_value("COARSE", fao_90_class)
         if attr == "CEC_CLAY":
-            self.augmented_attributes["CEC_clay"] = self.get_layers_value("CEC_CLAY")
+            self.augmented_attributes["CEC_clay"] = self.get_layers_value("CEC_CLAY", fao_90_class)
         if attr == "CEC_SOIL":
-            self.augmented_attributes["CEC_soil"] = self.get_layers_value("CEC_SOIL")
+            self.augmented_attributes["CEC_soil"] = self.get_layers_value("CEC_SOIL", fao_90_class)
         return self.augmented_attributes
 
 
@@ -143,12 +143,12 @@ class CalcStrategy(AugStrategy):
     def compute_ESP(self, Na_cmolc: float, CEC_SOIL: float) -> float:  # fix 7: added self
         return round(min(100.0 * Na_cmolc / CEC_SOIL, 100.0), 4)
 
-    def compute(self):
+    def compute(self, fao_90_class):
         ca       = self.get_attribute_value("Calcium échangeable")
         mg       = self.get_attribute_value("Magnésium échangeable")
         k        = self.get_attribute_value("Potassium échangeable")
         na       = self.get_attribute_value("Sodium échangeable")
-        CEC_soil = self.get_layers_value("CEC_SOIL")  
+        CEC_soil = self.get_layers_value("CEC_SOIL", fao_90_class)  
         print(f"[CalcStrategy.compute] smu_id={self.smu_id} "
           f"ca={ca} mg={mg} k={k} na={na} CEC_soil={CEC_soil}")# fix 6: was get_value
 
@@ -171,7 +171,7 @@ STRATEGIES: Dict[str, str] = {
 }
 
 
-def build_augmented_layer(report: str, hwsd_db: str, smu_id: int) -> AugmentedLayer:
+def build_augmented_layer(report: str, hwsd_db: str, smu_id: int, fao_90_class: str) -> AugmentedLayer:
     attrs = list(STRATEGIES.keys())
 
     read_strat = ReadStrategy(report)
@@ -184,9 +184,9 @@ def build_augmented_layer(report: str, hwsd_db: str, smu_id: int) -> AugmentedLa
         if strat == "READ":
             read_strat.compute(attr)
         elif strat == "AUG":
-            aug_strat.compute(attr)
+            aug_strat.compute(attr, fao_90_class)
         elif strat == "CALC" and not calc_done:
-            calc_strat.compute()
+            calc_strat.compute(fao_90_class)
             calc_done = True
 
     aug_strat.close()
@@ -203,11 +203,11 @@ class LayerInterpolator:
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
 
-    def get_hwsd_layer(self, layer: str, smu_id: int) -> AugmentedLayer:
+    def get_hwsd_layer(self, layer: str, smu_id: int, fao_90_class: str) -> AugmentedLayer:
         columns = ", ".join(HWSD_MAPPER.keys())
         self.cursor.execute(
-            f"SELECT {columns} FROM HWSD2_LAYERS WHERE HWSD2_SMU_ID = ? AND LAYER = ?",
-            (smu_id, layer)
+            f"SELECT {columns} FROM HWSD2_LAYERS WHERE HWSD2_SMU_ID = ? AND LAYER = ? AND FAO90 = ?",
+            (smu_id, layer, fao_90_class)
         )
         row = self.cursor.fetchone()
         if row is None:
@@ -268,19 +268,19 @@ class LayerInterpolator:
                 values[attr] = None
         return AugmentedLayer("D2", values, d2_hwsd.smu_id)
 
-    def build_augmented_layers(self, d1: AugmentedLayer, d2: AugmentedLayer, smu_id: int) -> AugmentedLayersGroup:
-        d3 = self.get_hwsd_layer("D3", smu_id)   # fix 4: was self.smu_id
-        d4 = self.get_hwsd_layer("D4", smu_id)
-        d5 = self.get_hwsd_layer("D5", smu_id)
-        d6 = self.get_hwsd_layer("D6", smu_id)
-        d7 = self.get_hwsd_layer("D7", smu_id)
+    def build_augmented_layers(self, d1: AugmentedLayer, d2: AugmentedLayer, smu_id: int, fao_90_class: str) -> AugmentedLayersGroup:
+        d3 = self.get_hwsd_layer("D3", smu_id, fao_90_class)   # fix 4: was self.smu_id
+        d4 = self.get_hwsd_layer("D4", smu_id, fao_90_class)
+        d5 = self.get_hwsd_layer("D5", smu_id, fao_90_class)
+        d6 = self.get_hwsd_layer("D6", smu_id, fao_90_class)
+        d7 = self.get_hwsd_layer("D7", smu_id, fao_90_class)
         return AugmentedLayersGroup([d1, d2, d3, d4, d5, d6, d7])
 
-    def layers_orchestrator(self, report: str, smu_id: int) -> AugmentedLayersGroup:
-        d1      = build_augmented_layer(report, self.hwsd_db, smu_id)
-        d2_hwsd = self.get_hwsd_layer("D2", smu_id)
+    def layers_orchestrator(self, report: str, smu_id: int, fao_90_class: str) -> AugmentedLayersGroup:
+        d1      = build_augmented_layer(report, self.hwsd_db, smu_id, fao_90_class)
+        d2_hwsd = self.get_hwsd_layer("D2", smu_id, fao_90_class)
         d2      = self.interpolate(d1, d2_hwsd)
-        return self.build_augmented_layers(d1, d2, smu_id)
+        return self.build_augmented_layers(d1, d2, smu_id, fao_90_class)
 
 
 class Output:
@@ -302,14 +302,15 @@ class Output:
 
 
 if __name__ == "__main__":
-    report   = "engines/report_augmentation/rapport_values.json"          # replace with your FarmerReport object
+    report   = "engines/OCR_processing/report_augmentation/rapport_values.json"          # replace with your FarmerReport object
     hwsd_db  = "hwsd.db"     # replace with your .db path
     smu_id   = 31835          # replace with your SMU_ID
+    fao_90_class = "Haplic Acrisols"  # replace with selected FAO-90 class for this SMU
     output   = "engines/report_augmentation/results" # replace with desired output directory
     filename = "report_augmented_layers"
 
     interpolator = LayerInterpolator(hwsd_db)
-    group        = interpolator.layers_orchestrator(report, smu_id)
+    group        = interpolator.layers_orchestrator(report, smu_id, fao_90_class)
     interpolator.close()
 
     Output().to_xlsx(group, output, filename)
