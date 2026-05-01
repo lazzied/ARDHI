@@ -1,6 +1,18 @@
+from typing import List
+
 import numpy as np
+from ardhi.db.ardhi import ArdhiRepository
+from ardhi.db.connections import get_ardhi_connection
+from engines.OCR_processing.yield_service.yield_calc import YieldRepository
+from engines.OCR_processing.models import CropSuitability, InputLevel, ScenarioConfig, SiteContext, Texture, WaterSupply, pH_level
+from raster.tiff_operations import get_smu_id_value
 
 
+def get_constrained_yield(yield_repo = YieldRepository): # this will be changed to farmer's report or gaez dataset
+    return yield_repo.get_full_constraints_yield()
+
+def get_max_yield(yield_repo= YieldRepository):
+    return yield_repo.get_agroclimatic_yield()
 
 def compute_suitability(constrained_yield, max_yield):
     """
@@ -106,22 +118,64 @@ PIXEL_CLASS_TO_SI = {
 }
 
 
+
+
+def rank_crops(crop_names: List[str], yield_repo: YieldRepository) -> List[CropSuitability]:
+    results = []
+
+    for crop_name in crop_names:
+        constrained_yield = get_constrained_yield(yield_repo, crop_name)
+        max_yield         = get_max_yield(yield_repo, crop_name)
+
+        ratio, pixel_class, SI, SC, SC_label = compute_suitability(constrained_yield, max_yield)
+
+        results.append(CropSuitability(
+            crop_name         = crop_name,
+            potential_yield   = max_yield,
+            constrained_yield = constrained_yield,
+            ratio             = ratio,
+            pixel_class       = pixel_class,
+            SI                = SI,
+            SC                = SC,
+            SC_label          = SC_label,
+        ))
+
+    return sorted(results, key=lambda x: x.SI, reverse=True)
+
 # ----------------------------------------------------------------------
 # Example usage
 # ----------------------------------------------------------------------
+
 if __name__ == "__main__":
+    
+    coord = (36.858096, 9.962084)
+    conn_ardhi = get_ardhi_connection()
+    smu_id = get_smu_id_value(coord)
 
-    # Precompute max_yield once from your full raster
-    constrained_yield_raster = np.array([0, 500, 1200, 2400, 3200, 4100, 5500, np.nan])
-    max_yield = float(np.nanmax(constrained_yield_raster))
+    ardhi_repo = ArdhiRepository(conn_ardhi)
 
-    print(f"Global max yield: {max_yield} kg/ha\n")
-    print(f"{'Yield':>8}  {'Ratio':>6}  {'Class':>4}  {'SI':>8}  {'SC':>2}  SC Label")
-    print("-" * 60)
+    scenario = ScenarioConfig(
+        crop_name="maize",
+        input_level=InputLevel.HIGH,
+        water_supply=WaterSupply.RAINFED
+    )
+       
+    site = SiteContext(
+            coordinates=coord,
+            ph_level=pH_level.BASIC,
+            texture_class=Texture.MEDIUM,
+            smu_id=smu_id
+        )
+    yield_repo = YieldRepository(ardhi_repo,scenario,site)
 
-    test_yields = [np.nan, 0, 500, 1200, 2400, 3200, 4100, 5500]
+    constrained_yield = get_constrained_yield(yield_repo)
+    max_yield         = get_max_yield(yield_repo)
 
-    for y in test_yields:
-        ratio, pixel_class, SI, SC, SC_label = compute_suitability(y, max_yield)
-        y_str = "NaN" if (y is None or (isinstance(y, float) and np.isnan(y))) else str(y)
-        print(f"{y_str:>8}  {ratio:>6.3f}  {pixel_class:>4}  {SI:>8.2f}  {SC:>2}  {SC_label}")
+    ratio, pixel_class, SI, SC, SC_label = compute_suitability(constrained_yield, max_yield)
+
+    print(f"Constrained yield : {constrained_yield} kg/ha")
+    print(f"Max yield         : {max_yield} kg/ha")
+    print(f"Ratio             : {ratio:.3f}")
+    print(f"Pixel class       : {pixel_class}")
+    print(f"SI                : {SI}")
+    print(f"SC                : {SC} — {SC_label}")

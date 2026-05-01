@@ -27,7 +27,7 @@ from engines.edaphic_crop_reqs import (
     appendix6_3_3_parser as parser_3,
     appendix6_3_4_parser as parser_4,
 )
-from engines.edaphic_crop_reqs.xlxs_merger import merge_csvs_to_xlsx
+from engines.soil_properties_builder.output.output import Output
 
 # ---------------------------------------------------------------------------
 # Parser registry
@@ -288,7 +288,7 @@ if __name__ == "__main__":
         parser_registry      = PARSER_REGISTRY,
     )
     for level, sq_dict in results.items():
-        merge_csvs_to_xlsx(
+        Output.merge_csvs_to_xlsx(
             f"engines/edaphic_crop_reqs/results/{level}",
             f"engines/edaphic_crop_reqs/results/{level}/merged_output.xlsx",
         )

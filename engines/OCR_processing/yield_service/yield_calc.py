@@ -1,0 +1,290 @@
+import difflib
+import numpy as np
+from pyaez import SoilConstraints
+from ardhi.db.ardhi import ArdhiRepository
+from ardhi.db.connections import close_connection, get_ardhi_connection, get_hwsd_connection
+from ardhi.db.hwsd import HwsdRepository
+from engines.OCR_processing.models import (
+    DRIP_IRRIGATED_CROPS, GRAVITY_IRRIGATED_CROPS, INPUT_LEVEL_TO_PYAEZ, 
+    IRRIGATION_TO_DB_STR, RAINFED_SPRINKLER_CROPS, InputLevel, IrrigationType, ScenarioConfig, SiteContext, 
+    Texture, WaterSupply, WaterSupplyIndex, get_crop_code, pH_level
+)
+from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import HWSDPropGenerator
+from engines.soil_properties_builder.report_augmentation.processing import ReportOperations, ReportPropGenerator
+from raster.tiff_operations import get_smu_id_value, sample_raster_at
+
+
+# ---------------------------------------------------------------------------
+# Helper Logic
+# ---------------------------------------------------------------------------
+
+def normalize(name: str) -> str:
+    return name.strip().lower()
+
+def suggest(name: str, choices: set[str], n: int = 3) -> list[str]:
+    return difflib.get_close_matches(name, choices, n=n, cutoff=0.5)
+
+def validate_crop_name(
+    crop_name: str,
+    water_supply: WaterSupply,
+    irrigation_type: IrrigationType | None = None,
+) -> str:
+    name = normalize(crop_name)
+    if water_supply == WaterSupply.RAINFED:
+        valid_crops, context = RAINFED_SPRINKLER_CROPS, "rainfed/sprinkler"
+    elif water_supply == WaterSupply.IRRIGATED:
+        if irrigation_type == IrrigationType.GRAVITY:
+            valid_crops, context = GRAVITY_IRRIGATED_CROPS, "gravity irrigation"
+        elif irrigation_type == IrrigationType.SPRINKLER:
+            valid_crops, context = RAINFED_SPRINKLER_CROPS, "sprinkler irrigation"
+        elif irrigation_type == IrrigationType.DRIP:
+            valid_crops, context = DRIP_IRRIGATED_CROPS, "drip irrigation"
+        else:
+            raise ValueError(f"Invalid irrigation type: {irrigation_type}")
+    else:
+        raise ValueError(f"Invalid water supply: {water_supply}")
+
+    if name not in valid_crops:
+        suggestions = suggest(name, valid_crops)
+        msg = f"Invalid crop '{crop_name}' for {context}."
+        if suggestions:
+            msg += f" Did you mean: {', '.join(suggestions)}?"
+        raise ValueError(msg)
+    return name
+
+# ---------------------------------------------------------------------------
+# Yield Repository (Data Access)
+# ---------------------------------------------------------------------------
+
+class YieldRepository:
+    def __init__(self, ardhi_repo: ArdhiRepository, scenario: ScenarioConfig, site: SiteContext):
+        self.ardhi_repo = ardhi_repo
+        self.scenario = scenario
+        self.site = site
+
+    def _get_yield_from_map(self, crop_code_res: str, map_code: str) -> float:
+        crop_code = get_crop_code(self.scenario.crop_name, crop_code_res)
+        tiff_path = self.ardhi_repo.query_tiff_path(
+            input_level=self.scenario.input_level,
+            water_supply=self.scenario.water_supply,
+            crop_code=crop_code,
+            map_code=map_code,
+        )
+        print("")
+        return sample_raster_at(tiff_path, self.site.coordinates)
+
+    def get_agroclimatic_yield(self) -> float:
+        return self._get_yield_from_map("RES02", "RES02-YLD")
+
+    def get_full_constraints_yield(self) -> float:
+        crop_code = get_crop_code(self.scenario.crop_name, "RES02")
+        print(f"[debug] crop_code={crop_code}, map_code=RES05-YLX30AS, "
+            f"input_level={self.scenario.input_level.value}, "
+            f"water_supply={self.scenario.water_supply.value}")
+        return self._get_yield_from_map("RES05", "RES05-YLX30AS")
+
+    def get_edaphic_paths(self) -> tuple[str, str]:
+        validated_name = validate_crop_name(
+            self.scenario.crop_name, self.scenario.water_supply, self.scenario.irrigation_type
+        )
+        
+        base_query = {
+            "input_level": self.scenario.input_level,
+            "crop_name": validated_name,
+            "ph_level": self.site.ph_level,
+            "texture_class": self.site.texture_class
+        }
+
+        rainfed_path = self.ardhi_repo.query_edaphic_path(
+            water_supply_str="rainfed_sprinkler", **base_query
+        )
+
+        if self.scenario.water_supply == WaterSupply.RAINFED:
+            return rainfed_path, rainfed_path
+
+        irr_str = IRRIGATION_TO_DB_STR[self.scenario.irrigation_type]
+        irrigated_path = self.ardhi_repo.query_edaphic_path(
+            water_supply_str=irr_str, **base_query
+        )
+        return rainfed_path, irrigated_path
+
+# ---------------------------------------------------------------------------
+# Yield Calculator (Logic)
+# ---------------------------------------------------------------------------
+
+class YieldCalculator:
+    def __init__(self, yield_repo: YieldRepository, soil_prop_path: str):
+        self.repo = yield_repo
+        self.soil_prop_path = soil_prop_path
+
+    def calculate_fc4_yield(self, paths: tuple[str, str], smu_id: int, yield_in: float) -> float:
+        soil_constraints = SoilConstraints.SoilConstraints()
+        soil_constraints.importSoilReductionSheet(paths[0], paths[1])
+
+        ws_idx = WaterSupplyIndex[self.repo.scenario.water_supply.name].value
+        il_idx = INPUT_LEVEL_TO_PYAEZ[self.repo.scenario.input_level]
+
+        soil_constraints.calculateSoilQualities(ws_idx, self.soil_prop_path, self.soil_prop_path)
+        soil_constraints.calculateSoilRatings(il_idx)
+
+        yield_out = soil_constraints.applySoilConstraints(
+            np.array([[smu_id]], dtype=np.int64), 
+            np.array([[yield_in]], dtype=float)
+        )
+        return float(yield_out[0, 0])
+
+    def orchestrate_fc4(self) -> float:
+        smu_id = self.repo.site.smu_id or get_smu_id_value(self.repo.site.coordinates)
+        if smu_id is None:
+            raise ValueError(f"No SMU found at {self.repo.site.coordinates}")
+
+        paths = self.repo.get_edaphic_paths()
+        yield_in = self.repo.get_agroclimatic_yield()
+
+        return self.calculate_fc4_yield(paths, smu_id, yield_in)
+
+
+
+def run_yield_pipeline(
+    ardhi_repo: ArdhiRepository,
+    scenario: ScenarioConfig,
+    site: SiteContext,
+    report_soil_path: str,
+    hwsd_soil_path: str
+) -> float:
+    # 1. Create Repository (The Context)
+    repo = YieldRepository(ardhi_repo, scenario, site)
+
+    # 2. Calculate FC4 based on Report Augmentation
+    calc = YieldCalculator(repo, soil_prop_path=report_soil_path)
+    fc4_report = calc.orchestrate_fc4()
+    print(f"[Pipeline] FC4 Report Yield: {fc4_report}")
+
+    # 3. Calculate FC4 based on HWSD (for correctiosample_raster_atn factor)
+    calc.soil_prop_path = hwsd_soil_path
+    fc4_hwsd = calc.orchestrate_fc4()
+    
+    # 4. Calculate FC5 factor
+    final_gaez_yield = repo.get_full_constraints_yield()
+    fc5 = final_gaez_yield / fc4_hwsd if fc4_hwsd else 0.0
+    print(f"[Pipeline] GAEZ Final: {final_gaez_yield}, FC4 HWSD: {fc4_hwsd} -> FC5: {fc5}")
+
+    return fc4_report * fc5
+
+# ---------------------------------------------------------------------------
+# Orchestration and Main
+# ---------------------------------------------------------------------------
+
+
+class YieldCalcOrchestrator:
+    def __init__(
+        self, 
+        scenario: ScenarioConfig, 
+        site: SiteContext,
+        fao_90_class: str,
+        conn_hwsd, 
+        conn_ardhi
+    ):
+        self.scenario = scenario
+        self.site = site
+        self.fao_90_class = fao_90_class
+        self.conn_hwsd = conn_hwsd
+        self.conn_ardhi = conn_ardhi
+        
+        self.paths = {
+            "report_input": "engines/soil_properties_builder/report_augmentation/input/rapport_values.json",
+            "hwsd_out": "engines/soil_properties_builder/output/results/hwsd_results",
+            "report_out": "engines/soil_properties_builder/output/results/report_results"
+        }
+
+    @staticmethod
+    def build_context(coord: tuple, hwsd_repo: HwsdRepository) -> tuple[SiteContext, str]:
+        """
+        Helper to resolve spatial IDs and metadata.
+        """
+        smu_id = get_smu_id_value(coord)
+        fao_90 = hwsd_repo.get_fao_90(smu_id)
+
+        site = SiteContext(
+            coordinates=coord,
+            ph_level=pH_level.BASIC,
+            texture_class=Texture.MEDIUM,
+            smu_id=smu_id
+        )
+        return site, fao_90
+
+    def run(self):
+        """Executes the full pipeline."""
+        hwsd_repo = HwsdRepository(self.conn_hwsd)
+        ardhi_repo = ArdhiRepository(self.conn_ardhi)
+
+        # Generate soil properties
+        hwsd_path, report_path = self._generate_soils(hwsd_repo)
+
+        # Run final yield calculation
+        return run_yield_pipeline(
+            ardhi_repo=ardhi_repo,
+            scenario=self.scenario,
+            site=self.site,
+            report_soil_path=report_path,
+            hwsd_soil_path=hwsd_path
+        )
+
+    def _generate_soils(self, hwsd_repo):
+        """Internal logic for soil generators."""
+        hwsd_gen = HWSDPropGenerator(
+            self.site.smu_id, self.fao_90_class, hwsd_repo, 
+            self.paths["hwsd_out"], "hwsd_soil"
+        )
+        hwsd_soil_path = hwsd_gen.layers_orchestrator()
+
+        report_ops = ReportOperations(self.paths["report_input"])
+        report_gen = ReportPropGenerator(
+            smu_id=self.site.smu_id,
+            fao_90_class=self.fao_90_class,
+            report_ops=report_ops,
+            hwsd_repo=hwsd_repo,
+            hwsd_prop_generator=hwsd_gen,
+            output_dir=self.paths["report_out"],
+            filename="report_soil"
+        )
+        report_soil_path = report_gen.layers_orchestrator()
+
+        return hwsd_soil_path, report_soil_path
+
+
+
+
+if __name__ == "__main__":
+    # 1. Setup Inputs
+    coord = (36.858096, 9.962084)
+    scenario = ScenarioConfig(
+        crop_name="maize",
+        input_level=InputLevel.HIGH,
+        water_supply=WaterSupply.RAINFED
+    )
+
+    # 2. Open Connections
+    conn_hwsd = get_hwsd_connection()
+    conn_ardhi = get_ardhi_connection()
+
+    try:
+        # 3. Use the Orchestrator's internal helper to build context
+        hwsd_repo = HwsdRepository(conn_hwsd)
+        site, fao_90 = YieldCalcOrchestrator.build_context(coord, hwsd_repo)
+
+        # 4. Initialize and Run
+        orchestrator = YieldCalcOrchestrator(
+            scenario=scenario,
+            site=site,
+            fao_90_class=fao_90,
+            conn_hwsd=conn_hwsd,
+            conn_ardhi=conn_ardhi
+        )
+        
+        final_yield = orchestrator.run()
+        print(f"\n{'='*30}\nFINAL CALCULATED YIELD: {final_yield}\n{'='*30}")
+
+    finally:
+        close_connection(conn_hwsd)
+        close_connection(conn_ardhi)

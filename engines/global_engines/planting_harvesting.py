@@ -1,36 +1,21 @@
 #RES02-CBD ; Optimum starting day of crop growth cycle provided as day of year at approximately 10 km resolution 
 #RES02-CYC: Represents the number of days from planting to harvest for maximum yield potential.
 
-import sqlite3
-from engines.OCR_processing.constraints_engine import _sample_raster_at
+from ardhi.db.ardhi import ArdhiRepository
+from engines.OCR_processing.yield_service.yield_calc import _sample_raster_at
 
-DB_PATH = "ardhi.db"
-
-def calendar_query_tiff_path(crop_code: str, map_code: str) -> str | None:
-    """Look up a tiff path in the `tiff_files` table."""
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT file_path FROM tiff_files
-            WHERE crop_code = ?
-              AND map_code = ?
-            """,
-            (crop_code, map_code),
-        )
-        row = cursor.fetchone()
-    return row["file_path"].strip() if row else None
+class CropCalendar:
+    def __init__(self, repo: ArdhiRepository):
+        self.repo = repo
+    
+    def get_optimum_planting_day(self,crop_code: str, coords) -> float:
+        tiff_file_path = self.repo.calendar_query_tiff_path(crop_code, "RES02-CBD")
+        return _sample_raster_at(tiff_file_path, coords)
 
 
-def get_optimum_planting_day(crop_code: str, coords) -> float:
-    tiff_file_path = calendar_query_tiff_path(crop_code, "RES02-CBD")
-    return _sample_raster_at(tiff_file_path, coords)
-
-
-def get_growth_days(crop_code: str, coords) -> float:
-    tiff_file_path = calendar_query_tiff_path(crop_code, "RES02-LGD")
-    return _sample_raster_at(tiff_file_path, coords)
+    def get_growth_days(self,crop_code: str, coords) -> float:
+        tiff_file_path = self.repo.calendar_query_tiff_path(crop_code, "RES02-LGD")
+        return _sample_raster_at(tiff_file_path, coords)
 
 
 
