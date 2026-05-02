@@ -51,6 +51,39 @@ class CropSuitabilityScore:
         if self.regional_share is not None and self.regional_share >= 0: #useful for ranking
             return self.regional_share / 100.0
         return 0.0
+    
+    def to_dict(self) -> dict:
+        """
+    Serialized crop suitability score for one crop at one location.
+
+    Fields:
+        crop_code                  : FAO crop identifier code
+        crop_name                  : human-readable crop name
+        input_level                : farming input level (low / medium / high)
+        water_supply               : irrigation type (rainfed / irrigated)
+        suitability_index          : raw suitability score (0–10000)
+        suitability_index_percentage: suitability_index scaled to 0–100
+        suitability_class          : suitability class index (1–9)
+        suitability_label          : human-readable class label (e.g. "Very Suitable")
+        suitability_description    : longer description of the suitability class
+        regional_share             : share of suitable land in 10km area (0–10000)
+        regional_share_percentage  : regional_share scaled to 0–100
+        is_suitable                : True if suitability_class is between 1 and 7
+    """
+        return {
+            "crop_code": self.crop_code,
+            "crop_name": self.crop_name,
+            "input_level": self.input_level,
+            "water_supply": self.water_supply,
+            "suitability_index": self.suitability_index,
+            "suitability_index_percentage": self.suitability_index_percentage,
+            "suitability_class": self.suitability_class,
+            "suitability_label": self.suitability_label,
+            "suitability_description": self.suitability_description,
+            "regional_share": self.regional_share,
+            "regional_share_percentage": self.regional_share_percentage,
+            "is_suitable": self.is_suitable,
+        }
 
 @dataclass
 class LayerDicts:
@@ -97,3 +130,21 @@ class RankingSuitability:
         ranked = self.ranks_by_suitability
         print("ranked", ranked)
         return ranked[:min(n, len(ranked))]
+
+    def to_dict(self) -> dict:
+        """
+        Serialized ranking result containing all suitable crops.
+
+        Fields:
+            ranks_by_suitability : crops sorted by suitability_index descending (best pixel-level fit first)
+            ranks_by_region      : crops sorted by regional_share descending (most widespread first)
+
+        Note:
+            Frontend is responsible for limiting the number of displayed crops.
+            Use ranks_by_suitability for precision-based recommendations.
+            Use ranks_by_region for area-level overview.
+        """
+        return {
+            "ranks_by_suitability": [s.to_dict() for s in self.ranks_by_suitability],
+            "ranks_by_region": [s.to_dict() for s in self.ranks_by_region],
+        }

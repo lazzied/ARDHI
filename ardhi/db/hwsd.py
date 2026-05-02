@@ -70,6 +70,17 @@ class HwsdRepository:
         row = self.cursor.fetchone()
         return row["FAO90"].strip() if row else None
     
+    def get_soter_texture_class(self, smu_id, fao_90 ):
+        self.cursor.execute(
+            """
+            SELECT TEXTURE_SOTER FROM HWSD2_LAYERS
+            WHERE HWSD2_SMU_ID = ? AND FAO90 = ? AND layer = ?
+            """,
+            (smu_id,fao_90,"D1",),
+        )
+        row = self.cursor.fetchone()
+        return row["TEXTURE_SOTER"].strip() if row else None
+    
     def debug_query(self, smu_id, fao_90_class, layer="D1"):
         # Check if the SMU ID exists at all
         self.cursor.execute("SELECT COUNT(*) FROM HWSD2_LAYERS WHERE HWSD2_SMU_ID = ?", (smu_id,))

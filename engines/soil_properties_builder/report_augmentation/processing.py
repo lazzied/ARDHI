@@ -2,7 +2,7 @@ import json
 from typing import Any, Dict
 from ardhi.db.connections import close_connection, get_hwsd_connection
 from ardhi.db.hwsd import HwsdRepository
-from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup
+from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, pH_level
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import HWSDPropGenerator
 from engines.soil_properties_builder.output.output import Output
 from engines.soil_properties_builder.report_augmentation.constants import CLASS_ATTRIBUTES, HWSD_COLUMNS,  NUM_ATTRIBUTES, REPORT_MAP, SOIL_DEPTH
@@ -19,6 +19,14 @@ class ReportOperations():
             if item["attribute"] == attribute:
                 return item["value"]
         return None
+    
+    def get_report_ph_class(self)-> pH_level:
+        
+        ph_value = float(self.get_attribute_value("pH"))
+        if ph_value > 7:
+            return pH_level.ACIDIC
+        else:
+            return pH_level.BASIC
 
 
 class ReadStrategy():
@@ -74,6 +82,7 @@ class CalcStrategy():
         self.smu_id = smu_id
 
 
+    
     def compute_TEB(self, Ca: float, Mg: float, K: float, Na: float):
         
         def to_cmolc(g_per_kg, atomic_mass, charge):

@@ -145,31 +145,7 @@ class YieldCalculator:
 
 
 
-def run_yield_pipeline(
-    ardhi_repo: ArdhiRepository,
-    scenario: ScenarioConfig,
-    site: SiteContext,
-    report_soil_path: str,
-    hwsd_soil_path: str
-) -> float:
-    # 1. Create Repository (The Context)
-    repo = YieldRepository(ardhi_repo, scenario, site)
 
-    # 2. Calculate FC4 based on Report Augmentation
-    calc = YieldCalculator(repo, soil_prop_path=report_soil_path)
-    fc4_report = calc.orchestrate_fc4()
-    print(f"[Pipeline] FC4 Report Yield: {fc4_report}")
-
-    # 3. Calculate FC4 based on HWSD (for correctiosample_raster_atn factor)
-    calc.soil_prop_path = hwsd_soil_path
-    fc4_hwsd = calc.orchestrate_fc4()
-    
-    # 4. Calculate FC5 factor
-    final_gaez_yield = repo.get_full_constraints_yield()
-    fc5 = final_gaez_yield / fc4_hwsd if fc4_hwsd else 0.0
-    print(f"[Pipeline] GAEZ Final: {final_gaez_yield}, FC4 HWSD: {fc4_hwsd} -> FC5: {fc5}")
-
-    return fc4_report * fc5
 
 # ---------------------------------------------------------------------------
 # Orchestration and Main
@@ -177,81 +153,92 @@ def run_yield_pipeline(
 
 
 class YieldCalcOrchestrator:
-    def __init__(
-        self, 
-        scenario: ScenarioConfig, 
-        site: SiteContext,
-        fao_90_class: str,
-        conn_hwsd, 
-        conn_ardhi
-    ):
+    def __init__(self, coord, scenario, hwsd_repo, ardhi_repo):
         self.scenario = scenario
-        self.site = site
-        self.fao_90_class = fao_90_class
-        self.conn_hwsd = conn_hwsd
-        self.conn_ardhi = conn_ardhi
-        
+        self.hwsd_repo = hwsd_repo
+        self.ardhi_repo = ardhi_repo
+        self.coord = coord
+
         self.paths = {
             "report_input": "engines/soil_properties_builder/report_augmentation/input/rapport_values.json",
             "hwsd_out": "engines/soil_properties_builder/output/results/hwsd_results",
             "report_out": "engines/soil_properties_builder/output/results/report_results"
         }
 
-    @staticmethod
-    def build_context(coord: tuple, hwsd_repo: HwsdRepository) -> tuple[SiteContext, str]:
-        """
-        Helper to resolve spatial IDs and metadata.
-        """
+        # Step 1: get smu_id and fao_90 first
         smu_id = get_smu_id_value(coord)
         fao_90 = hwsd_repo.get_fao_90(smu_id)
 
-        site = SiteContext(
+        # Step 2: init hwsd_gen (needs smu_id and fao_90)
+        self.hwsd_gen = HWSDPropGenerator(
+            smu_id, fao_90, self.hwsd_repo,
+            self.paths["hwsd_out"], "hwsd_soil"
+        )
+
+        # Step 3: now get texture and ph (needs hwsd_gen)
+        texture_class, ph_level = self.get_texture_and_ph()
+
+        # Step 4: build site with full info
+        self.site = SiteContext(
             coordinates=coord,
-            ph_level=pH_level.BASIC,
-            texture_class=Texture.MEDIUM,
+            ph_level=ph_level,
+            texture_class=texture_class,
             smu_id=smu_id
         )
-        return site, fao_90
+        self.fao_90_class = fao_90
+        
+    def run_yield_pipeline(
+        self,
+        scenario: ScenarioConfig,
+        site: SiteContext,
+        report_soil_path: str,
+        hwsd_soil_path: str
+    ) -> float:
+        repo = YieldRepository(self.ardhi_repo, scenario, site)
+
+        calc = YieldCalculator(repo, soil_prop_path=report_soil_path)
+        fc4_report = calc.orchestrate_fc4()
+
+        calc.soil_prop_path = hwsd_soil_path
+        fc4_hwsd = calc.orchestrate_fc4()
+
+        final_gaez_yield = repo.get_full_constraints_yield()
+        fc5 = final_gaez_yield / fc4_hwsd if fc4_hwsd else 0.0
+
+        return fc4_report * fc5
 
     def run(self):
-        """Executes the full pipeline."""
-        hwsd_repo = HwsdRepository(self.conn_hwsd)
-        ardhi_repo = ArdhiRepository(self.conn_ardhi)
-
-        # Generate soil properties
-        hwsd_path, report_path = self._generate_soils(hwsd_repo)
-
-        # Run final yield calculation
-        return run_yield_pipeline(
-            ardhi_repo=ardhi_repo,
+        hwsd_path, report_path = self._generate_soils()
+        return self.run_yield_pipeline(
             scenario=self.scenario,
             site=self.site,
             report_soil_path=report_path,
             hwsd_soil_path=hwsd_path
         )
+        
+    def get_texture_and_ph(self):
+        texture_class = self.hwsd_gen.get_soter_texture()
+        ph_level = ReportOperations(self.paths["report_input"]).get_report_ph_class()
+        return texture_class, ph_level
+        
+    def _generate_soils(self):
 
-    def _generate_soils(self, hwsd_repo):
-        """Internal logic for soil generators."""
-        hwsd_gen = HWSDPropGenerator(
-            self.site.smu_id, self.fao_90_class, hwsd_repo, 
-            self.paths["hwsd_out"], "hwsd_soil"
-        )
-        hwsd_soil_path = hwsd_gen.layers_orchestrator()
+        hwsd_soil_path = self.hwsd_gen.layers_orchestrator()
 
         report_ops = ReportOperations(self.paths["report_input"])
         report_gen = ReportPropGenerator(
             smu_id=self.site.smu_id,
             fao_90_class=self.fao_90_class,
             report_ops=report_ops,
-            hwsd_repo=hwsd_repo,
-            hwsd_prop_generator=hwsd_gen,
+            hwsd_repo=self.hwsd_repo,
+            hwsd_prop_generator=self.hwsd_gen,
             output_dir=self.paths["report_out"],
             filename="report_soil"
         )
+        
         report_soil_path = report_gen.layers_orchestrator()
 
         return hwsd_soil_path, report_soil_path
-
 
 
 
@@ -263,7 +250,7 @@ if __name__ == "__main__":
         input_level=InputLevel.HIGH,
         water_supply=WaterSupply.RAINFED
     )
-
+    
     # 2. Open Connections
     conn_hwsd = get_hwsd_connection()
     conn_ardhi = get_ardhi_connection()
@@ -271,17 +258,17 @@ if __name__ == "__main__":
     try:
         # 3. Use the Orchestrator's internal helper to build context
         hwsd_repo = HwsdRepository(conn_hwsd)
-        site, fao_90 = YieldCalcOrchestrator.build_context(coord, hwsd_repo)
-
-        # 4. Initialize and Run
-        orchestrator = YieldCalcOrchestrator(
-            scenario=scenario,
-            site=site,
-            fao_90_class=fao_90,
-            conn_hwsd=conn_hwsd,
-            conn_ardhi=conn_ardhi
-        )
+        ardhi_repo = ArdhiRepository(conn_ardhi)
         
+        # 4. Initialize and Run
+
+        orchestrator = YieldCalcOrchestrator(
+            coord= coord,
+            scenario=scenario,
+            hwsd_repo=hwsd_repo,
+            ardhi_repo=ardhi_repo
+        )
+
         final_yield = orchestrator.run()
         print(f"\n{'='*30}\nFINAL CALCULATED YIELD: {final_yield}\n{'='*30}")
 

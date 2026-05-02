@@ -1,7 +1,7 @@
 
 from ardhi.db.connections import close_connection, get_hwsd_connection
 from ardhi.db.hwsd import HwsdRepository
-from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup
+from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, Texture
 from engines.soil_properties_builder.hwsd2_prop.constants import COLUMNS, SOIL_DEPTH
 from engines.soil_properties_builder.output.output import Output
 
@@ -14,6 +14,11 @@ class HWSDPropGenerator:
         self.output_dir   = output_dir
         self.filename     = filename
         
+    def get_soter_texture(self)-> Texture:
+        soter_texture_class_code = self.hwsd_repo.get_soter_texture_class(self.smu_id,self.fao_90_class)
+        soter_texture_class = self.hwsd_repo.get_code_value("TEXTURE_SOTER", soter_texture_class_code)
+        return Texture(soter_texture_class.lower())
+            
     def apply_transformations(self, raw: dict) -> dict:
         result = {}
 

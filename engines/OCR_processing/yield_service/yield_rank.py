@@ -1,8 +1,9 @@
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection
+from ardhi.db.hwsd import HwsdRepository
 from engines.OCR_processing.models import InputLevel, ScenarioConfig, SiteContext, Texture, WaterSupply, pH_level
 from engines.OCR_processing.yield_service.models import YIELD_LAYERS
-from engines.OCR_processing.yield_service.yield_calc import run_yield_pipeline
+from engines.OCR_processing.yield_service.yield_calc import YieldCalcOrchestrator, run_yield_pipeline
 from engines.global_engines.yield_service.debug_print_yield import print_ranking_summary
 from engines.global_engines.yield_service.models import CropYieldScore, RankingYield
 from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
@@ -13,8 +14,7 @@ class ReportCropYield:
 
     def __init__(
         self,
-        report_soil_path: str,
-        hwsd_soil_path: str,
+        hwsd_repo: HwsdRepository,
         ardhi_repo: ArdhiRepository,
         input_level: InputLevel,
         water_supply: WaterSupply,
@@ -22,14 +22,16 @@ class ReportCropYield:
         texture_class: Texture,
         coord: tuple,                        # Fix 3: added missing coord parameter
     ):
-        self.report_soil_path = report_soil_path
-        self.hwsd_soil_path = hwsd_soil_path
+
         self.ardhi_repo = ardhi_repo
+        self.hwsd_repo = hwsd_repo
         
         self.input_level = input_level
         self.water_supply = water_supply
+        
         self.ph_level = ph_level
         self.texture_class = texture_class
+        
         self.coord = coord                   # Fix 3: store coord
 
         self.crop_names = self.build_crop_names()
@@ -69,13 +71,14 @@ class ReportCropYield:
 
     def build_crop_actual_yield(self, scenario: ScenarioConfig, site: SiteContext):
         
-        calculated_yield = run_yield_pipeline(
-            ardhi_repo=self.ardhi_repo,
+        orchestrator = YieldCalcOrchestrator(
             scenario=scenario,
-            site=site,
-            report_soil_path=self.report_soil_path,   # Fix 2: was self.report_soil_prop_path
-            hwsd_soil_path=self.hwsd_soil_path         # Fix 2: was self.hwsd_soil_prop_path
+            hwsd_repo=self.hwsd_repo,
+            ardhi_repo=ardhi_repo
         )
+
+        calculated_yield = orchestrator.run()
+        
         return calculated_yield
 
     def build_crop_score(
