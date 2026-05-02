@@ -10,9 +10,8 @@ def print_suitability_score(score: CropSuitabilityScore):
     print(f"Class Label:     {score.suitability_label} (Index: {score.suitability_class})")
     print(f"Description:     {score.suitability_description}")
     
-    # Raw values vs Percentages
-    sxx_pct = score.sxx_percentage
-    sx2_pct = score.sx2_percentage
+    sxx_pct = score.suitability_index_percentage
+    sx2_pct = score.regional_share_percentage
     
     print(f"Suitability Idx: {score.suitability_index:<5} -> {sxx_pct:>6.2f}%")
     print(f"Regional Share:  {score.regional_share:<5} -> {sx2_pct:>6.2f}%")
@@ -32,7 +31,7 @@ def print_suitability_ranking(ranking: RankingSuitability, limit: int = 10):
     print("-" * 60)
     
     for i, s in enumerate(top_crops, 1):
-        print(f"{i:<4} | {s.crop_name[:18]:<18} | {s.sxx_percentage:>7.1f}% | "
-              f"{s.sx2_percentage:>7.1f}% | {s.suitability_label}")
+        print(f"{i:<4} | {s.crop_name[:18]:<18} | {s.suitability_index_percentage:>7.1f}% | "
+              f"{s.regional_share_percentage:>7.1f}% | {s.suitability_label}")
     
     print(f"\nTotal Analyzed: {len(ranking.scores)} | Total Suitable: {len(ranking.ranks_by_suitability)}")

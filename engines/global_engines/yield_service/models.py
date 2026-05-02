@@ -48,8 +48,7 @@ class RankingYield:
 
     @property
     def ranked(self) -> list[CropYieldScore]:
-        """All crops with yield data sorted by primary yield descending."""
-        with_yield = [y for y in self.yields if y.has_yield]
+        with_yield = [y for y in self.scores if y.has_yield]  
         return sorted(with_yield, key=lambda y: y.actual_yield, reverse=True)
 
     def top_n(self, n: int = 10) -> list[CropYieldScore]:

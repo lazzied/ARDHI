@@ -26,30 +26,30 @@ class CropSuitabilityScore:
 
     @property
     def suitability_label(self) -> str:
-        if self.six_class and self.six_class in SUITABILITY_CLASSES_SIX:
-            return SUITABILITY_CLASSES_SIX[self.six_class]["label"]
+        if self.suitability_class and self.suitability_class in SUITABILITY_CLASSES_SIX:
+            return SUITABILITY_CLASSES_SIX[self.suitability_class]["label"]
         return "Unknown"
 
     @property
     def suitability_description(self) -> str:
-        if self.six_class and self.six_class in SUITABILITY_CLASSES_SIX:
-            return SUITABILITY_CLASSES_SIX[self.six_class]["description"]
+        if self.suitability_class and self.suitability_class in SUITABILITY_CLASSES_SIX:
+            return SUITABILITY_CLASSES_SIX[self.suitability_class]["description"]
         return ""
 
     @property
     def is_suitable(self) -> bool:
-        return self.six_class is not None and 1 <= self.six_class <= 7 #useful for displayin
+        return self.suitability_class is not None and 1 <= self.suitability_class <= 7 #useful for displayin
 
     @property
-    def sxx_percentage(self) -> float:
-        if self.sxx_index is not None and self.sxx_index >= 0: #useful for ranking
-            return self.sxx_index / 100.0
+    def suitability_index_percentage(self) -> float:
+        if self.suitability_index is not None and self.suitability_index >= 0: #useful for ranking
+            return self.suitability_index / 100.0
         return 0.0
 
     @property
-    def sx2_percentage(self) -> float:
-        if self.sx2_share is not None and self.sx2_share >= 0: #useful for ranking
-            return self.sx2_share / 100.0
+    def regional_share_percentage(self) -> float:
+        if self.regional_share is not None and self.regional_share >= 0: #useful for ranking
+            return self.regional_share / 100.0
         return 0.0
 
 @dataclass
@@ -68,13 +68,13 @@ class RankingSuitability:
     scores: list[CropSuitabilityScore] = field(default_factory=list)
 
     @property
-    def ranks_by_suitability(self) -> list[CropSuitabilityScore]:
+    def ranks_by_suitability(self) -> list:
         """All suitable crops sorted by suitability index descending."""
-        suitable = [s for s in self.scores if s.is_suitable and s.sxx_index is not None]
-        return sorted(suitable, key=lambda s: s.sxx_index, reverse=True)
+        suitable = [s for s in self.scores if s.is_suitable and s.suitability_index is not None]
+        return sorted(suitable, key=lambda s: s.suitability_index, reverse=True)
     
     @property
-    def ranks_by_region(self) -> list[CropSuitabilityScore]:
+    def ranks_by_region(self) -> list:
         """All suitable crops sorted by regional share (sx2) descending.
 
         Same suitability filter as `ranked`, but ordered by how widespread
@@ -82,16 +82,18 @@ class RankingSuitability:
         than by the per-pixel suitability index. Crops without sx2 data
         are excluded.
         """
+        
         suitable = [
             s for s in self.scores
-            if s.is_suitable and s.sx2_share is not None
+            if s.is_suitable and s.regional_share is not None
         ]
-        return sorted(suitable, key=lambda s: s.sx2_share, reverse=True)
+        return sorted(suitable, key=lambda s: s.regional_share, reverse=True)
 
-    def top_n(self, n: int = 10) -> list[CropSuitabilityScore]:
+    def top_n(self, n: int = 10) -> list:
         """
         Return top N suitable crops.
         If n exceeds the number of suitable crops, return all suitable crops.
         """
         ranked = self.ranks_by_suitability
+        print("ranked", ranked)
         return ranked[:min(n, len(ranked))]

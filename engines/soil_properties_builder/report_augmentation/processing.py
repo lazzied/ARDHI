@@ -184,7 +184,7 @@ if __name__ == "__main__":
     hwsd_db      = "hwsd.db"
     smu_id       = 31835
     output       = "engines/soil_properties_builder/output/results/report_results"
-    filename     = "report_augmented_layers"
+    filename     = "report_soil"
     
     conn = get_hwsd_connection()
     try:

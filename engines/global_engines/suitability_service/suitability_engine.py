@@ -1,7 +1,7 @@
-
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection
 from engines.OCR_processing.models import InputLevel, WaterSupply
+from engines.global_engines.suitability_service.debug_print_suitability import print_suitability_ranking
 from engines.global_engines.suitability_service.models import SUITABILITY_LAYERS, CropSuitabilityScore, LayerDicts, RankingSuitability
 from gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
 from raster.tiff_operations import read_tiff_pixel
@@ -11,30 +11,28 @@ Uses three suitability layers:
   - RES05-SXX30AS: continuous suitability index (0-10000) → primary ranking metric
   - RES05-SIX30AS: suitability class index (1-9) → human-readable class label
   - RES05-SX2:     share of VS+S+MS land (0-10000, 10km) → regional overview
-
 """
 
 class CropSuitability:
     
     def __init__(self,
                  ardhi_repo: ArdhiRepository,
-                 crop_registry: dict,
-                 input_level:InputLevel,
-                 water_supply:WaterSupply):
+                 input_level: InputLevel,
+                 water_supply: WaterSupply,
+                 coord: tuple): # Added coord to the constructor
         
         self.ardhi_repo = ardhi_repo
-        self.crop_names = self.build_crop_names(crop_registry)
-        self.tiff_dict  =  self.build_tiff_dict()
-        
         self.input_level = input_level
         self.water_supply = water_supply
+        self.coord = coord # Storing coord for use in build_crop_score
+        
+        self.crop_names = self.build_crop_names()
+        
+        self.tiff_dict = {} # Initialize dictionary BEFORE calling build_tiff_dict
+        self.build_tiff_dict()
 
     @staticmethod
     def build_crop_names() -> dict:
-        """
-        Build {RES05_crop_code: crop_name} from CROP_REGISTRY.
-        {'ALF': 'Alfalfa', 'AVOC': 'Avocado', 'AVOST': 'Subtropical ecotype', 'AVOTH': 'Tropical highland',
-        """
         names = {}
         for crop_key, crop in CROP_REGISTRY.items():
             caption = crop.get("caption", crop_key)
@@ -47,29 +45,50 @@ class CropSuitability:
                     names[st_code] = st.get("description", f"{caption} ({st_key})")
         return names
     
-    def build_tiff_dict(self)-> LayerDicts:
-        for key , map_code in SUITABILITY_LAYERS.items():
-            dict = self.ardhi_repo.get_crops_tiff_paths(map_code,self.input_level,self.water_supply)
-            self.tiff_dict[key.lower()] = dict
+    def build_tiff_dict(self) -> None:
         
-    
+        for key, map_code in SUITABILITY_LAYERS.items():
+            # Logic preserved: getting paths from ardhi_repo
+            paths_dict = self.ardhi_repo.get_crops_tiff_paths(map_code, self.input_level, self.water_supply)
+            self.tiff_dict[key.lower()] = paths_dict
+            
+        print("\n=== SXX keys (crop codes from DB) ===")
+        print(sorted(self.tiff_dict["sxx"].keys()))
+        
+        print("\n=== crop_names keys (crop codes from REGISTRY) ===")
+        print(sorted(self.crop_names.keys()))
+        
     def build_crop_score(
         self,
         crop_code: str,
-        
     ) -> CropSuitabilityScore:
         
         crop_name = self.crop_names.get(crop_code)
+        #print(crop_code)
+        # Accessing nested dictionaries created in build_tiff_dict
+        # errors: 
+        
+        sxx_path = self.tiff_dict["sxx"].get(crop_code)
+        six_path = self.tiff_dict["six"].get(crop_code)
+        sx2_path = self.tiff_dict["sx2"].get(crop_code)
 
-        six_val = read_tiff_pixel(self.tiff_dict["six"].get(crop_code), self.coord[0], self.coord[1])
-        sx2_val = read_tiff_pixel(self.tiff_dict["sx2"].get(crop_code), self.coord[0], self.coord[1])
-        sxx_val = read_tiff_pixel(self.tiff_dict["sxx"].get(crop_code), self.coord[0], self.coord[1])
+        if not sxx_path or not six_path or not sx2_path:
+            print(f"[SKIP] Missing tiff path for crop: {crop_code}")
+            return None  # or raise, or log
+
+        sxx_val = read_tiff_pixel(sxx_path.strip(), self.coord[0], self.coord[1])
+        print(sxx_val)
+        six_val = read_tiff_pixel(six_path.strip(), self.coord[0], self.coord[1])
+        print(six_val)
+        sx2_val = read_tiff_pixel(sx2_path.strip(), self.coord[0], self.coord[1])
+        print(sx2_val)
+        #print("sx2",sx2_val)
 
         return CropSuitabilityScore(
             crop_code=crop_code,
             crop_name=crop_name,
             input_level=self.input_level,
-            water_supply = self.water_supply,
+            water_supply=self.water_supply,
             
             suitability_index=int(sxx_val),
             suitability_class=int(six_val),
@@ -77,18 +96,30 @@ class CropSuitability:
         )
         
     def build_ranking_class(self) -> RankingSuitability:
-        crop_scores= []
+        crop_scores = []
         for code_crop in self.crop_names.keys():
-            crop_scores.append(self.build_crop_score(code_crop))
-        return RankingSuitability(scores = crop_scores)
+            score = self.build_crop_score(code_crop)
+            if score is not None:
+                # TEMP DEBUG
+                print(f"{code_crop}: class={score.suitability_class}, idx={score.suitability_index}, suitable={score.is_suitable}")
+                crop_scores.append(score)
+        return RankingSuitability(scores=crop_scores)
 
 if __name__ == "__main__":
     conn = get_ardhi_connection()
     ardhi_repo = ArdhiRepository(conn)
-    input_level=InputLevel.HIGH
-    water_supply=WaterSupply.RAINFED
-    crop_suitability = CropSuitability(ardhi_repo,
-                           input_level
-                           ,water_supply)
+    input_level = InputLevel.HIGH
+    water_supply = WaterSupply.RAINFED
+    
+    coord = (37.024050, 9.435166) # Example coordinates (Lon, Lat)
+
+    crop_suitability = CropSuitability(
+        ardhi_repo,
+        input_level,
+        water_supply,
+        coord
+    )
     
     ranking_suitability = crop_suitability.build_ranking_class()
+    
+    print_suitability_ranking(ranking_suitability)
