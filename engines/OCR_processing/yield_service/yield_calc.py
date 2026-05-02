@@ -11,7 +11,7 @@ from engines.OCR_processing.models import (
 )
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import HWSDPropGenerator
 from engines.soil_properties_builder.report_augmentation.processing import ReportOperations, ReportPropGenerator
-from raster.tiff_operations import get_smu_id_value, sample_raster_at
+from raster.tiff_operations import get_smu_id_value, read_tiff_pixel
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ class YieldRepository:
             map_code=map_code,
         )
         print("")
-        return sample_raster_at(tiff_path, self.site.coordinates)
+        return read_tiff_pixel(tiff_path, self.site.coordinates)
 
     def get_agroclimatic_yield(self) -> float:
         return self._get_yield_from_map("RES02", "RES02-YLD")
@@ -116,8 +116,12 @@ class YieldCalculator:
     def __init__(self, yield_repo: YieldRepository, soil_prop_path: str):
         self.repo = yield_repo
         self.soil_prop_path = soil_prop_path
+        
+        
 
-    def calculate_fc4_yield(self, paths: tuple[str, str], smu_id: int, yield_in: float) -> float:
+    def calculate_fc4_yield(self, smu_id: int, yield_in: float) -> float:
+        paths = self.repo.get_edaphic_paths()
+
         soil_constraints = SoilConstraints.SoilConstraints()
         soil_constraints.importSoilReductionSheet(paths[0], paths[1])
 
@@ -132,16 +136,29 @@ class YieldCalculator:
             np.array([[yield_in]], dtype=float)
         )
         return float(yield_out[0, 0])
+    
+    def get_soil_qualities(self):
+        paths = self.repo.get_edaphic_paths()
+        
+        soil_constraints = SoilConstraints.SoilConstraints()
+        soil_constraints.importSoilReductionSheet(paths[0], paths[1])
+
+        ws_idx = WaterSupplyIndex[self.repo.scenario.water_supply.name].value
+
+        soil_constraints.calculateSoilQualities(ws_idx, self.soil_prop_path, self.soil_prop_path)
+        
+        return soil_constraints.getSoilQualities()
+        
 
     def orchestrate_fc4(self) -> float:
         smu_id = self.repo.site.smu_id or get_smu_id_value(self.repo.site.coordinates)
         if smu_id is None:
             raise ValueError(f"No SMU found at {self.repo.site.coordinates}")
 
-        paths = self.repo.get_edaphic_paths()
+
         yield_in = self.repo.get_agroclimatic_yield()
 
-        return self.calculate_fc4_yield(paths, smu_id, yield_in)
+        return self.calculate_fc4_yield(smu_id, yield_in)
 
 
 
@@ -167,6 +184,7 @@ class YieldCalcOrchestrator:
 
         # Step 1: get smu_id and fao_90 first
         smu_id = get_smu_id_value(coord)
+        
         fao_90 = hwsd_repo.get_fao_90(smu_id)
 
         # Step 2: init hwsd_gen (needs smu_id and fao_90)
@@ -220,7 +238,13 @@ class YieldCalcOrchestrator:
         texture_class = self.hwsd_gen.get_soter_texture()
         ph_level = ReportOperations(self.paths["report_input"]).get_report_ph_class()
         return texture_class, ph_level
-        
+    
+    def get_soil_qualities(self) -> list:
+        hwsd_path, report_path = self._generate_soils()
+        repo = YieldRepository(self.ardhi_repo, self.scenario, self.site)
+        calc = YieldCalculator(repo, soil_prop_path=report_path)
+        return calc.get_soil_qualities()
+
     def _generate_soils(self):
 
         hwsd_soil_path = self.hwsd_gen.layers_orchestrator()
@@ -268,7 +292,9 @@ if __name__ == "__main__":
             hwsd_repo=hwsd_repo,
             ardhi_repo=ardhi_repo
         )
-
+        
+        qualities = orchestrator.get_soil_qualities()
+        
         final_yield = orchestrator.run()
         print(f"\n{'='*30}\nFINAL CALCULATED YIELD: {final_yield}\n{'='*30}")
 

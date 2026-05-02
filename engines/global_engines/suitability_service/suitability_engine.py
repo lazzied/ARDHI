@@ -76,11 +76,11 @@ class CropSuitability:
             print(f"[SKIP] Missing tiff path for crop: {crop_code}")
             return None  # or raise, or log
 
-        sxx_val = read_tiff_pixel(sxx_path.strip(), self.coord[0], self.coord[1])
+        sxx_val = read_tiff_pixel(sxx_path.strip(), self.coord)
         print(sxx_val)
-        six_val = read_tiff_pixel(six_path.strip(), self.coord[0], self.coord[1])
+        six_val = read_tiff_pixel(six_path.strip(), self.coord)
         print(six_val)
-        sx2_val = read_tiff_pixel(sx2_path.strip(), self.coord[0], self.coord[1])
+        sx2_val = read_tiff_pixel(sx2_path.strip(), self.coord)
         print(sx2_val)
         #print("sx2",sx2_val)
 

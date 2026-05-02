@@ -1,5 +1,10 @@
+from dataclasses import dataclass
+from enum import Enum
 import sqlite3
 from engines.OCR_processing.models import InputLevel, Texture, pH_level, WaterSupply
+from engines.global_engines.models import InputManagement
+
+
 
 class ArdhiRepository:
     def __init__(self, conn: sqlite3.Connection):
@@ -88,3 +93,28 @@ class ArdhiRepository:
             )
             row = self.cursor.fetchone()
             return row["file_path"].strip() if row else None
+        
+    def query_all_sq_file_paths(self,management:InputManagement):
+        rows = self.cursor.execute(
+        """
+        SELECT sq_factor , file_path from tiff_files
+        WHERE map_code = ? AND management = ? 
+        
+        """,
+        ("SQX",management.value,)
+        ).fetchall()
+        return {row["sq_factor"]: row["file_path"] for row in rows}
+    
+    
+    def query_sqidx_file_path(self,management:InputManagement):
+        rows = self.cursor.execute(
+        """
+        SELECT sq_factor , file_path from tiff_files
+        WHERE map_code = ? AND management = ? 
+        
+        """,
+        ("SQX-IDX",management.value,)
+        ).fetchall()
+        return {row["sq_factor"]: row["file_path"] for row in rows}
+
+    

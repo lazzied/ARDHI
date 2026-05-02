@@ -54,8 +54,8 @@ class CropYield:
 
         crop_name = self.crop_names.get(crop_code)
 
-        ylx_val = read_tiff_pixel(ylx_path.strip(), self.coord[0], self.coord[1])
-        yxx_val = read_tiff_pixel(yxx_path.strip(), self.coord[0], self.coord[1])
+        ylx_val = read_tiff_pixel(ylx_path.strip(), self.coord)
+        yxx_val = read_tiff_pixel(yxx_path.strip(), self.coord)
 
         return CropYieldScore(
             crop_code=crop_code,

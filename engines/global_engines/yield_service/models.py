@@ -70,6 +70,33 @@ class RankingYield:
         """
         ranked = self.ranked
         return ranked[:min(n, len(ranked))]
+    
+    def to_dict(self) -> dict:
+        """
+        Returns all crops sorted by actual yield descending.
+        Use this for the main crop recommendation list — best performing crops first.
+
+        Fields:
+            ranked: list of crops with their yield scores, highest yield at index 0.
+        """
+        return {"ranked": [s.to_dict() for s in self.ranked]}
+
+    def ratio_to_dict(self) -> dict:
+        """
+        Returns crops ranked by how close they are to their regional yield ceiling.
+        Use this to identify crops with the least room for improvement (most optimized)
+        or to highlight underperforming crops with high potential.
+
+        Fields:
+            ranked_by_gap     : sorted by absolute yield gap ascending (kg/ha) — 
+                                crops with the smallest gap to their regional max come first.
+            ranked_by_gap_pct : sorted by yield gap percentage ascending — 
+                                same logic but normalized, useful for comparing across crop types.
+        """
+        return {
+            "ranked_by_gap": [s.to_dict() for s in self.ranked_by_gap],
+            "ranked_by_gap_pct": [s.to_dict() for s in self.ranked_by_gap_pct],
+        }
 
 YIELD_LAYERS = {
     "YLX": "RES05-YLX30AS",   # primary yield, 1km

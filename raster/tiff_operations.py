@@ -2,21 +2,10 @@
 import os
 import warnings
 import rasterio
-from rasterio.transform import rowcol
 from rasterio.windows import Window
 
 HWSD_SMU_TIFF = "hwsd_data/hwsd2_smu_tunisia.tif"
 
-
-def sample_raster_at(tiff_path: str, coordinates: tuple[float, float]) -> float:
-    """Sample the value of `tiff_path` at (lat, lon)."""
-    if not tiff_path:
-        raise FileNotFoundError("No TIFF path resolved for the given parameters.")
-
-    lat, lon = coordinates
-    with rasterio.open(tiff_path) as src:
-        r, c = rowcol(src.transform, lon, lat)  # rowcol wants (xs, ys) = (lon, lat)
-        return src.read(1)[r, c]
     
 def get_smu_id_value(coord: tuple[float, float]) -> int | None:
     """
@@ -33,11 +22,14 @@ def get_smu_id_value(coord: tuple[float, float]) -> int | None:
         print(f"[smu_value] coord={coord} -> {val}")
         return val
 
-def read_tiff_pixel(tiff_path: str, lat: float, lon: float) -> float:
+def read_tiff_pixel(tiff_path: str, coordinates: tuple[float, float]) -> float:
     """
     Reads a single pixel value from a TIFF given Latitude and Longitude.
     Note: For Tunisia, lat is ~36.8 and lon is ~10.2.
     """
+    lat = coordinates[0]
+    lon= coordinates[1]
+    
     try:
         # 1. Clean the path (removes trailing spaces/newlines)
         if not tiff_path:

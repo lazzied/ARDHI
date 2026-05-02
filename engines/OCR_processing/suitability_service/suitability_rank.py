@@ -1,11 +1,14 @@
 from engines.global_engines.yield_service.models import RankingYield
-
-
 class ReportCropSuitability:
 
     def __init__(self, ranking: RankingYield):
         self.ranking = ranking
 
+    def build_ranking_class(self):
+        return self.ranking
+        
+
+    
     def print_report(self, top_n: int = 10) -> None:
         ranked = self.ranking.top_n_by_gap_pct(top_n)
 

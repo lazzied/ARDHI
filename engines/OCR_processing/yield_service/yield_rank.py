@@ -87,7 +87,7 @@ class ReportCropYield:
             print(f"[SKIP] Missing yxx tiff path for crop: {crop_code}")
             return None
 
-        potential_regional_yield = read_tiff_pixel(yxx_path.strip(), self.coord[0], self.coord[1])
+        potential_regional_yield = read_tiff_pixel(yxx_path.strip(), self.coord)
 
         return CropYieldScore(
             crop_code=crop_code,

@@ -1,63 +1,98 @@
 #RES02-CBD ; Optimum starting day of crop growth cycle provided as day of year at approximately 10 km resolution 
 #RES02-CYC: Represents the number of days from planting to harvest for maximum yield potential.
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection
-from engines.OCR_processing.models import InputLevel, WaterSupply, get_crop_code
-from raster.tiff_operations import sample_raster_at
+from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
+from engines.OCR_processing.models import InputLevel, WaterSupply
+from engines.global_engines.models import CropCalendarClass
+from raster.tiff_operations import read_tiff_pixel
+
 
 
 class CropCalendar:
-    def __init__(self, repo: ArdhiRepository, coord: tuple, input_level, water_supply):
+    def __init__(self, repo: ArdhiRepository, coord: tuple, input_level: InputLevel, water_supply: WaterSupply):
         self.repo = repo
         self.coord = coord
         self.input_level = input_level
         self.water_supply = water_supply
+        self.crop_names = self.build_crop_names()
 
-    def get_optimum_planting_day(self, crop_code: str) -> float:
+    @staticmethod
+    def build_crop_names() -> dict:
+        names = {}
+        for crop_key, crop in CROP_REGISTRY.items():
+            caption = crop.get("caption", crop_key)
+            res05_code = crop.get("codes", {}).get("RES02")
+            if res05_code:
+                names[res05_code] = caption
+            for st_key, st in crop.get("subtypes", {}).items():
+                st_code = st.get("codes", {}).get("RES02")
+                if st_code:
+                    names[st_code] = st.get("description", f"{caption} ({st_key})")
+        return names
+
+    def get_optimum_planting_day(self, crop_code: str) -> int:
         tiff_file_path = self.repo.calendar_query_tiff_path(crop_code, "RES02-CBD", self.water_supply, self.input_level)
-        return sample_raster_at(tiff_file_path, self.coord)
+        return read_tiff_pixel(tiff_file_path, self.coord)
 
-    def get_growth_days(self, crop_code: str) -> float:
+    def get_growth_days(self, crop_code: str) -> int:
         tiff_file_path = self.repo.calendar_query_tiff_path(crop_code, "RES02-CYL", self.water_supply, self.input_level)
-        return sample_raster_at(tiff_file_path, self.coord)
+        return read_tiff_pixel(tiff_file_path, self.coord)
 
-    def get_planting_date(self, crop_code: str) -> str:
-        """Convert optimum planting day-of-year to a month/day string."""
-        day_of_year = int(self.get_optimum_planting_day(crop_code))
-        d = date(2001, 1, 1) + timedelta(days=day_of_year - 1)
-        return d.strftime("%B %d")
+    def build_calendar_class(self, crop_code: str) -> CropCalendarClass | None:
+        try:
+            planting_day = self.get_optimum_planting_day(crop_code)
+            growth_days  = self.get_growth_days(crop_code)
 
-    def get_harvest_date(self, crop_code: str) -> str:
-        """Calculate harvest month/day = planting day + growth cycle days."""
-        day_of_year = int(self.get_optimum_planting_day(crop_code))
-        growth_days = int(self.get_growth_days(crop_code))
-        d = date(2001, 1, 1) + timedelta(days=day_of_year - 1 + growth_days)
-        return d.strftime("%B %d")
+            if planting_day is None or growth_days is None:
+                print(f"[SKIP] {crop_code} — missing raster value")
+                return None
+
+            planting_day = int(planting_day)
+            growth_days  = int(growth_days)
+
+            d_plant   = date(2001, 1, 1) + timedelta(days=planting_day - 1)
+            d_harvest = date(2001, 1, 1) + timedelta(days=planting_day - 1 + growth_days)
+
+            print(f"[FOUND] {crop_code} — planting: {d_plant.strftime('%B %d')}, harvest: {d_harvest.strftime('%B %d')}")
+            return CropCalendarClass(
+                crop_code     = crop_code,
+                planting_day  = planting_day,
+                growth_days   = growth_days,
+                planting_date = d_plant.strftime("%B %d"),
+                harvest_date  = d_harvest.strftime("%B %d"),
+            )
+        except Exception as e:
+            print(f"[SKIP] {crop_code} — {e}")
+            return None
+
+    def crop_calendar_class_factory(self) -> list[CropCalendarClass]:
+        crop_calendar_classes = []
+        for crop_code in self.crop_names.keys():
+            calendar_class = self.build_calendar_class(crop_code)
+            if calendar_class is not None:
+                crop_calendar_classes.append(calendar_class)
+        return crop_calendar_classes
 
 
 if __name__ == "__main__":
     conn = get_ardhi_connection()
     ardhi_repo = ArdhiRepository(conn)
 
-    input_level = InputLevel.HIGH
+    input_level  = InputLevel.HIGH
     water_supply = WaterSupply.RAINFED
-    coord = (37.024050, 9.435166)
-    crop_code = get_crop_code("maize", "RES02")
-
-    print("crop_code", crop_code)
+    coord        = (37.024050, 9.435166)
 
     calendar = CropCalendar(repo=ardhi_repo, coord=coord, input_level=input_level, water_supply=water_supply)
+    results  = calendar.crop_calendar_class_factory()
 
-    planting_day  = calendar.get_optimum_planting_day(crop_code)
-    growth_days   = calendar.get_growth_days(crop_code)
-    planting_date = calendar.get_planting_date(crop_code)
-    harvest_date  = calendar.get_harvest_date(crop_code)
-
-    print(f"Crop          : {crop_code}")
-    print(f"Coord         : {coord}")
-    print(f"Planting day  : {planting_day} (day of year)")
-    print(f"Growth days   : {growth_days}")
-    print(f"Planting date : {planting_date}")   # ← already a string, no .strftime()
-    print(f"Harvest date  : {harvest_date}")    # ← already a string, no .strftime()
+    for result in results:
+        print(f"Crop          : {result.crop_code}")
+        print(f"Planting day  : {result.planting_day}")
+        print(f"Growth days   : {result.growth_days}")
+        print(f"Planting date : {result.planting_date}")
+        print(f"Harvest date  : {result.harvest_date}")
+        print("---")
