@@ -1,6 +1,4 @@
 import sqlite3
-
-from ardhi.config import ARDHI_DB_PATH
 from engines.OCR_processing.models import InputLevel, Texture, pH_level, WaterSupply
 
 class ArdhiRepository:
@@ -39,20 +37,20 @@ class ArdhiRepository:
         row = self.cursor.fetchone()
         return row["file_path"].strip() if row else None
     
-    def calendar_query_tiff_path(self, crop_code: str, map_code: str) -> str | None:
+    def calendar_query_tiff_path(self, crop_code: str, map_code: str, water_supply, input_level) -> str | None:
         """Look up a tiff path in the `tiff_files` table."""
-        with sqlite3.connect(ARDHI_DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT file_path FROM tiff_files
-                WHERE crop_code = ?
-                AND map_code = ?
-                """,
-                (crop_code, map_code),
-            )
-            row = cursor.fetchone()
+        self.cursor.execute(
+            """
+            SELECT file_path FROM tiff_files
+            WHERE crop_code = ?
+            AND map_code = ?
+            AND water_supply= ?
+            AND input_level = ?
+            """,
+            (crop_code, map_code,water_supply.value,input_level.value),
+        )
+        
+        row = self.cursor.fetchone()
         return row["file_path"].strip() if row else None
     
 

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List
 
-from gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
+from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
 
 
 @dataclass

@@ -6,9 +6,9 @@ import sqlite3
 import logging
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
-from gaez_scripts.tiff_layer import from_url, TiffLayer
+from data_scripts.gaez_scripts.tiff_layer import from_url, TiffLayer
 from ardhi_db import get_connection, close_connection, insert_layer
-from gaez_scripts.TIFFpipeline import Downloader, RasterProcessor
+from data_scripts.gaez_scripts.TIFFpipeline import Downloader, RasterProcessor
 
 
 SHAPEFILE       = "gaez_data/tunisia_Tunisia_Country_Boundary/tunisia_Tunisia_Country_Boundary.shp"

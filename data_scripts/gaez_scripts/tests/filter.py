@@ -1,5 +1,5 @@
 
-from gaez_scripts.metadata.codes import KEEP_CODES, DROP_MODEL_PARAMETERS
+from data_scripts.gaez_scripts.metadata.codes import KEEP_CODES, DROP_MODEL_PARAMETERS
 import tempfile
 import shutil
 

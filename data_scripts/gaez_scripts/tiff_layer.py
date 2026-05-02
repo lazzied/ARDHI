@@ -15,7 +15,7 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-from gaez_scripts.metadata.gaez_metadata_templates import (
+from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import (
     METADATA_TEMPLATES,
     DATASET_CATEGORIES,
     CROP_REGISTRY,

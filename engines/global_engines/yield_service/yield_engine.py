@@ -2,7 +2,7 @@ from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection
 from engines.OCR_processing.models import InputLevel, WaterSupply
 from engines.global_engines.yield_service.models import YIELD_LAYERS, CropYieldScore, LayerDicts, RankingYield
-from gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
+from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
 from raster.tiff_operations import read_tiff_pixel
 from engines.global_engines.yield_service.debug_print_yield import print_ranking_summary
 

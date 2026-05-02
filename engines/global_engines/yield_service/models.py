@@ -50,7 +50,19 @@ class RankingYield:
     def ranked(self) -> list[CropYieldScore]:
         with_yield = [y for y in self.scores if y.has_yield]  
         return sorted(with_yield, key=lambda y: y.actual_yield, reverse=True)
+    
+    @property
+    def ranked_by_gap(self) -> list[CropYieldScore]:
+        """Rank by yield gap ascending — crops closest to their regional ceiling first."""
+        with_gap = [y for y in self.scores if y.yield_gap is not None]
+        return sorted(with_gap, key=lambda y: y.yield_gap)  # ascending
 
+    @property
+    def ranked_by_gap_pct(self) -> list[CropYieldScore]:
+        """Rank by yield gap percentage ascending — crops closest to their regional ceiling first."""
+        with_gap_pct = [y for y in self.scores if y.yield_gap_pct is not None]
+        return sorted(with_gap_pct, key=lambda y: y.yield_gap_pct)  # ascending
+    
     def top_n(self, n: int = 10) -> list[CropYieldScore]:
         """
         Return top N crops by yield.

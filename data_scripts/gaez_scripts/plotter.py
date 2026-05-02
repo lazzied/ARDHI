@@ -5,7 +5,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter
 
-from gaez_scripts.TIFFpipeline import RasterData, RasterProcessor
+from data_scripts.gaez_scripts.TIFFpipeline import RasterData, RasterProcessor
 
 
 class RasterSmoother:

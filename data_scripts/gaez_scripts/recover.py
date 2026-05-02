@@ -3,8 +3,8 @@ import os
 import sqlite3
 
 from ardhi_db import close_connection, get_connection, insert_layer
-from gaez_scripts.TIFFpipeline import Downloader
-from gaez_scripts.tiff_layer import from_url
+from data_scripts.gaez_scripts.TIFFpipeline import Downloader
+from data_scripts.gaez_scripts.tiff_layer import from_url
 
 logger = logging.getLogger(__name__)
 

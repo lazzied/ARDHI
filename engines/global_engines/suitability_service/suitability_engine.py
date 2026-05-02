@@ -3,7 +3,7 @@ from ardhi.db.connections import get_ardhi_connection
 from engines.OCR_processing.models import InputLevel, WaterSupply
 from engines.global_engines.suitability_service.debug_print_suitability import print_suitability_ranking
 from engines.global_engines.suitability_service.models import SUITABILITY_LAYERS, CropSuitabilityScore, LayerDicts, RankingSuitability
-from gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
+from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
 from raster.tiff_operations import read_tiff_pixel
 
 """

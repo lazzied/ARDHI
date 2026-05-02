@@ -8,7 +8,7 @@ import requests
 import base64
 import google_crc32c
 
-from gaez_scripts.tiff_layer import TiffLayer, from_url
+from data_scripts.gaez_scripts.tiff_layer import TiffLayer, from_url
 
 class Downloader:
     @staticmethod
