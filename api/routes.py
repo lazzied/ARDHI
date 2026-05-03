@@ -4,17 +4,17 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from api.dependencies import Repositories, get_repositories
-from api.models import ApiResponse, AugmentedSoilRequest, CropsNeedsRequest, EconomicSuitabilityRequest, FaoDecisionRequest, LabReport, OnboardingChoice, UserInput
+from api.models import ApiResponse, EconomicSuitabilityRequest, FaoAnswersRequest, FaoDecisionRequest, LabReport, OnboardingChoice, UserInput
 from api.services import (
-    build_augmented_soil_report,
     build_calendar,
     build_crops_info,
-    build_crops_needs,
+    build_crops_needs_for_user,
     build_economic_suitability,
     build_fao_decision,
+    build_fao_questions,
     build_global_crop_recommendations,
-    build_global_soil_quality,
-    build_hwsd_soil_report,
+    build_global_soil_quality_for_user,
+    build_hwsd_soil_report_for_user,
     calendar_units,
     crop_needs_units,
     crop_recommendation_units,
@@ -24,12 +24,14 @@ from api.services import (
     lab_report_units,
     persist_lab_report,
     build_report_crop_recommendations,
-    build_report_soil_quality,
+    build_report_soil_quality_for_user,
     build_selection_catalog,
     selection_catalog_units,
     soil_property_units,
     soil_quality_units,
     store_user_input,
+    build_augmented_soil_report_for_user,
+    submit_fao_answers,
 )
 from api.session import user_sessions
 
@@ -95,13 +97,34 @@ def submit_input(
     return success()
 
 
-@router.post(
-    "/soil/fao-decision",
+@router.get(
+    "/fao-decision/get-questions/{user_id}",
     response_model=ApiResponse,
-    summary="Advance or complete the FAO soil decision",
-    description="Given user_id, coord, and current answers, returns the next relevant FAO question or the final selected FAO90 class. On completion, the selected FAO class is persisted in session for downstream models.",
+    summary="Get the current FAO decision question",
+    description="Uses the stored user session to return the next relevant FAO question and options, or the final selected FAO90 class if the decision is already complete.",
 )
-def get_fao_decision(
+def get_fao_decision_questions(
+    user_id: str,
+    repos: Repositories = Depends(get_repositories),
+):
+    return success(build_fao_questions(user_id, repos), units=fao_decision_units())
+
+
+@router.post(
+    "/fao-decision/post-answers",
+    response_model=ApiResponse,
+    summary="Submit FAO decision answers",
+    description="Stores new FAO decision answers for the current user session and returns either the next question or the final selected FAO90 class.",
+)
+def post_fao_decision_answers(
+    data: FaoAnswersRequest,
+    repos: Repositories = Depends(get_repositories),
+):
+    return success(submit_fao_answers(data.user_id, data.answers, repos), units=fao_decision_units())
+
+
+@router.post("/soil/fao-decision", include_in_schema=False, response_model=ApiResponse)
+def legacy_fao_decision(
     data: FaoDecisionRequest,
     repos: Repositories = Depends(get_repositories),
 ):
@@ -147,31 +170,30 @@ def get_calendar_props(
     return success(build_calendar(data, repos), units=calendar_units())
 
 
-@router.post(
-    "/global/soil-constraint-factor",
+@router.get(
+    "/global/soil-constraint-factor/{user_id}",
     response_model=ApiResponse,
     summary="Get global soil constraint factors",
-    description="Returns soil quality constraint factors from the global raster-based workflow.",
+    description="Returns soil quality constraint factors from the global raster-based workflow using the stored user session.",
 )
 def get_global_soil_qualities_factor(
-    data: UserInput,
+    user_id: str,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_global_soil_quality(data, repos), units=soil_quality_units())
+    return success(build_global_soil_quality_for_user(user_id, repos), units=soil_quality_units())
 
 
-@router.post(
-    "/report/soil-constraint-factor/{crop_name}",
+@router.get(
+    "/report/soil-constraint-factor/{user_id}",
     response_model=ApiResponse,
     summary="Get report-based soil constraint factors",
-    description="Returns soil quality constraint factors from the report-augmented workflow for a specific crop.",
+    description="Returns report-augmented soil quality constraint factors for all crops using the stored user session.",
 )
 def get_report_soil_qualities_factor(
-    crop_name: str,
-    data: UserInput,
+    user_id: str,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_report_soil_quality(data, crop_name, repos), units=soil_quality_units())
+    return success(build_report_soil_quality_for_user(user_id, repos), units=soil_quality_units())
 
 
 @router.get(
@@ -202,43 +224,43 @@ def get_economic_suitability(data: EconomicSuitabilityRequest):
     )
 
 
-@router.post(
-    "/crops-needs",
+@router.get(
+    "/crops-needs/{user_id}",
     response_model=ApiResponse,
     summary="Get crop ecological needs",
-    description="Returns crop climate, terrain, and soil needs for the selected pH and texture classes.",
+    description="Returns crop climate, terrain, and soil needs using the pH and texture classes already stored in the user session.",
 )
 def get_crop_needs(
-    data: CropsNeedsRequest,
+    user_id: str,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_crops_needs(data.user_input, data.ph_level, data.texture_class, repos), units=crop_needs_units())
+    return success(build_crops_needs_for_user(user_id, repos), units=crop_needs_units())
 
 
-@router.post(
-    "/your-hwsd-soil-properties",
+@router.get(
+    "/your-hwsd-soil-properties/{user_id}",
     response_model=ApiResponse,
     summary="Generate HWSD soil properties",
-    description="Builds HWSD-based augmented soil layers for the provided user input and returns both JSON and the generated workbook path.",
+    description="Builds HWSD-based augmented soil layers from the stored user session and returns both JSON and the generated workbook path.",
 )
 def get_hwsd_soil_report(
-    data: UserInput,
+    user_id: str,
     repos: Repositories = Depends(get_repositories),
 ):
-    report = build_hwsd_soil_report(data, repos)
+    report = build_hwsd_soil_report_for_user(user_id, repos)
     return success(report["soil_properties"], units=soil_property_units(), output_path=report["output_path"])
 
 
-@router.post(
-    "/report/your-augmented-soil-properties",
+@router.get(
+    "/report/your-augmented-soil-properties/{user_id}",
     response_model=ApiResponse,
     summary="Generate report-augmented soil properties",
-    description="Builds report-augmented soil layers using the provided user input and lab report, and returns both JSON and the generated workbook path.",
+    description="Builds report-augmented soil layers using the stored user session and saved lab report, and returns both JSON and the generated workbook path.",
 )
-@router.post("/report/your-augmented_soil-properties", include_in_schema=False, response_model=ApiResponse)
+@router.get("/report/your-augmented_soil-properties/{user_id}", include_in_schema=False, response_model=ApiResponse)
 def get_augmented_soil_report(
-    data: AugmentedSoilRequest,
+    user_id: str,
     repos: Repositories = Depends(get_repositories),
 ):
-    report = build_augmented_soil_report(data.user_input, data.report, repos)
+    report = build_augmented_soil_report_for_user(user_id, repos)
     return success(report["soil_properties"], units=soil_property_units(), output_path=report["output_path"])

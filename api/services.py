@@ -270,6 +270,11 @@ def get_session_or_404(user_id: str) -> dict:
     return data
 
 
+def get_user_input_from_session(user_id: str) -> UserInput:
+    session = get_session_or_404(user_id)
+    return UserInput.model_validate(session)
+
+
 def _normalize_report_payload(report_payload):
     if isinstance(report_payload, str):
         return json.loads(report_payload)
@@ -452,9 +457,22 @@ def build_global_soil_quality(data: UserInput, repos: Repositories) -> dict:
     ).build_sq_class().to_dict()
 
 
-def build_report_soil_quality(data: UserInput, crop_name: str, repos: Repositories) -> dict:
-    scenario = ScenarioConfig(crop_name, data.input_level, data.water_supply, data.irrigation_type)
-    return ReportSq(data.coord, scenario, repos.hwsd, repos.ardhi).build_sq_class().to_dict()
+def build_global_soil_quality_for_user(user_id: str, repos: Repositories) -> dict:
+    return build_global_soil_quality(get_user_input_from_session(user_id), repos)
+
+
+def build_report_soil_quality_for_user(user_id: str, repos: Repositories) -> dict:
+    data = get_user_input_from_session(user_id)
+    soil_quality_by_crop = {}
+    for crop_name in ReportCropYield.build_crop_names().values():
+        scenario = ScenarioConfig(crop_name.lower(), data.input_level, data.water_supply, data.irrigation_type)
+        try:
+            soil_quality_by_crop[crop_name] = ReportSq(data.coord, scenario, repos.hwsd, repos.ardhi).build_sq_class().to_dict()
+        except ValueError:
+            continue
+        except FileNotFoundError:
+            continue
+    return soil_quality_by_crop
 
 
 def build_crops_info(repos: Repositories) -> dict:
@@ -515,6 +533,16 @@ def build_crops_needs(
     }
 
 
+def build_crops_needs_for_user(user_id: str, repos: Repositories) -> dict:
+    data = get_user_input_from_session(user_id)
+    if data.ph_level is None or data.texture_class is None:
+        raise HTTPException(
+            status_code=400,
+            detail="ph_level and texture_class must be stored in the user session before requesting crops-needs",
+        )
+    return build_crops_needs(data, data.ph_level, data.texture_class, repos)
+
+
 def build_hwsd_soil_report(data: UserInput, repos: Repositories) -> dict:
     resolved = resolve_user_input_context(data, repos)
     generator = HWSDPropGenerator(
@@ -530,6 +558,10 @@ def build_hwsd_soil_report(data: UserInput, repos: Repositories) -> dict:
         "soil_properties": augmented_layers_group_to_dict(group),
         "output_path": output_path,
     }
+
+
+def build_hwsd_soil_report_for_user(user_id: str, repos: Repositories) -> dict:
+    return build_hwsd_soil_report(get_user_input_from_session(user_id), repos)
 
 
 def build_augmented_soil_report(data: UserInput, report, repos: Repositories) -> dict:
@@ -561,6 +593,10 @@ def build_augmented_soil_report(data: UserInput, report, repos: Repositories) ->
         "soil_properties": augmented_layers_group_to_dict(group),
         "output_path": output_path,
     }
+
+
+def build_augmented_soil_report_for_user(user_id: str, repos: Repositories) -> dict:
+    return build_augmented_soil_report(get_user_input_from_session(user_id), None, repos)
 
 
 def prepare_external_report_contract(
@@ -618,3 +654,18 @@ def build_fao_decision(user_id: str, coord: tuple[float, float], answers: dict[s
         _store_fao_decision_state(user_id, coord, smu_id, candidates, answers)
 
     return result
+
+
+def build_fao_questions(user_id: str, repos: Repositories) -> dict:
+    data = get_user_input_from_session(user_id)
+    session = get_session_or_404(user_id)
+    answers = session.get("answers", {})
+    return build_fao_decision(user_id, data.coord, answers, repos)
+
+
+def submit_fao_answers(user_id: str, answers: dict[str, str], repos: Repositories) -> dict:
+    data = get_user_input_from_session(user_id)
+    session = get_session_or_404(user_id)
+    merged_answers = dict(session.get("answers", {}))
+    merged_answers.update(answers)
+    return build_fao_decision(user_id, data.coord, merged_answers, repos)

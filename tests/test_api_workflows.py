@@ -162,7 +162,7 @@ class ApiWorkflowTests(unittest.TestCase):
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
-    def test_fao_decision_returns_next_question_for_multiple_candidates(self):
+    def test_fao_get_questions_returns_next_question_for_multiple_candidates(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with self._build_client(
                 [
@@ -172,10 +172,16 @@ class ApiWorkflowTests(unittest.TestCase):
                     {"fao_90": "Calcaric Fluvisols", "share": 10.0},
                 ]
             ) as client:
-                response = client.post(
-                    "/soil/fao-decision",
-                    json={"user_id": "u2", "coord": [36.8, 10.1], "answers": {}},
+                client.post(
+                    "/submit-input",
+                    json={
+                        "user_id": "u2",
+                        "coord": [36.8, 10.1],
+                        "input_level": "high",
+                        "water_supply": "rainfed",
+                    },
                 )
+                response = client.get("/fao-decision/get-questions/u2")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
@@ -183,19 +189,26 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(payload["question"]["id"], "water_context")
         session = user_sessions.get("u2")
         self.assertEqual(session["smu_id"], 31802)
-        self.assertNotIn("fao_90_class", session)
+        self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
+        self.assertEqual(len(session["fao_90_candidates"]), 4)
 
-    def test_fao_decision_completes_for_single_candidate(self):
+    def test_fao_get_questions_completes_for_single_candidate(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with self._build_client(
                 [
                     {"fao_90": "Calcic Vertisols", "share": 100.0},
                 ]
             ) as client:
-                response = client.post(
-                    "/soil/fao-decision",
-                    json={"user_id": "u3", "coord": [36.8, 10.1], "answers": {}},
+                client.post(
+                    "/submit-input",
+                    json={
+                        "user_id": "u3",
+                        "coord": [36.8, 10.1],
+                        "input_level": "high",
+                        "water_supply": "rainfed",
+                    },
                 )
+                response = client.get("/fao-decision/get-questions/u3")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
@@ -204,7 +217,7 @@ class ApiWorkflowTests(unittest.TestCase):
         session = user_sessions.get("u3")
         self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
 
-    def test_fao_decision_persists_selected_class_after_answers(self):
+    def test_fao_post_answers_persists_selected_class_after_answers(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with self._build_client(
                 [
@@ -214,11 +227,19 @@ class ApiWorkflowTests(unittest.TestCase):
                     {"fao_90": "Calcaric Fluvisols", "share": 10.0},
                 ]
             ) as client:
-                response = client.post(
-                    "/soil/fao-decision",
+                client.post(
+                    "/submit-input",
                     json={
                         "user_id": "u4",
                         "coord": [36.8, 10.1],
+                        "input_level": "high",
+                        "water_supply": "rainfed",
+                    },
+                )
+                response = client.post(
+                    "/fao-decision/post-answers",
+                    json={
+                        "user_id": "u4",
                         "answers": {
                             "water_context": "Dry land, no standing water",
                             "sodic_check": "No, it digs normally",

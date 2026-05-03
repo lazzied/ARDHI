@@ -14,7 +14,9 @@ class OnboardingChoice(BaseModel):
 
 class LabReport(BaseModel):
     user_id: str = Field(description="Frontend-generated unique user/session identifier.")
-    lab_report: dict = Field(description="Structured lab report payload captured by the frontend or OCR flow.")
+    lab_report: dict | list[dict[str, Any]] = Field(
+        description="Structured lab report payload captured by the frontend or OCR flow."
+    )
 
 
 class UserInput(BaseModel):
@@ -36,6 +38,14 @@ class UserInput(BaseModel):
     )
     lab_report_exists: bool = Field(default=False, description="Whether a lab report is available for this user.")
     lab_report: Optional[dict] = Field(default=None, description="Optional stored lab report payload.")
+    ph_level: Optional[pH_level] = Field(
+        default=None,
+        description="Optional soil pH class selection stored in session for crop-needs and related flows.",
+    )
+    texture_class: Optional[Texture] = Field(
+        default=None,
+        description="Optional soil texture class selection stored in session for crop-needs and related flows.",
+    )
     smu_id: Optional[int] = Field(default=None, description="Resolved automatically from coord; not required from frontend.")
     fao_90_class: Optional[str] = Field(
         default=None,
@@ -47,26 +57,20 @@ class UserInput(BaseModel):
         return InputManagement.HIGH if self.input_level == InputLevel.HIGH else InputManagement.LOW
 
 
-class CropsNeedsRequest(BaseModel):
-    user_input: UserInput = Field(description="Base user context used to fetch crop needs.")
-    ph_level: pH_level = Field(description="Soil pH class selection.")
-    texture_class: Texture = Field(description="Soil texture class selection.")
-
-
-class AugmentedSoilRequest(BaseModel):
-    user_input: UserInput = Field(description="Base user context for report augmentation.")
-    report: str | list[dict[str, Any]] | dict[str, Any] | None = Field(
-        default=None,
-        description="Optional lab report input as raw JSON string, list of attribute rows, or object payload. If omitted, the backend uses the saved report file.",
-    )
-
-
 class FaoDecisionRequest(BaseModel):
     user_id: str = Field(description="Frontend-generated unique user/session identifier.")
     coord: tuple[float, float] = Field(description="User location as [latitude, longitude].")
     answers: dict[str, str] = Field(
         default_factory=dict,
         description="Current FAO decision answers as {question_id: selected_option}.",
+    )
+
+
+class FaoAnswersRequest(BaseModel):
+    user_id: str = Field(description="Frontend-generated unique user/session identifier.")
+    answers: dict[str, str] = Field(
+        default_factory=dict,
+        description="Submitted FAO decision answers as {question_id: selected_option}.",
     )
 
 
