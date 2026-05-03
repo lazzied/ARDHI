@@ -384,6 +384,13 @@ def store_user_input(data: UserInput, repos: Repositories) -> None:
     user_sessions[resolved.user_id] = session
 
 
+def store_soil_selection(user_id: str, ph_level: pH_level, texture_class: Texture) -> None:
+    session = get_session_or_404(user_id)
+    session["ph_level"] = ph_level
+    session["texture_class"] = texture_class
+    user_sessions[user_id] = session
+
+
 def _store_fao_decision_state(
     user_id: str,
     coord: tuple[float, float],

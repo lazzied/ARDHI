@@ -74,6 +74,12 @@ class FaoAnswersRequest(BaseModel):
     )
 
 
+class SoilSelectionRequest(BaseModel):
+    user_id: str = Field(description="Frontend-generated unique user/session identifier.")
+    ph_level: pH_level = Field(description="Soil pH class selected later in the workflow.")
+    texture_class: Texture = Field(description="Soil texture class selected later in the workflow.")
+
+
 class EconomicSuitabilityRequest(BaseModel):
     crop_name: str = Field(description="Crop name, for example maize or wheat.")
     crop_cost: float = Field(description="Production cost in TND/ha.")

@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from api.dependencies import Repositories, get_repositories
-from api.models import ApiResponse, EconomicSuitabilityRequest, FaoAnswersRequest, FaoDecisionRequest, LabReport, OnboardingChoice, UserInput
+from api.models import ApiResponse, EconomicSuitabilityRequest, FaoAnswersRequest, FaoDecisionRequest, LabReport, OnboardingChoice, SoilSelectionRequest, UserInput
 from api.services import (
     build_calendar,
     build_crops_info,
@@ -29,6 +29,7 @@ from api.services import (
     selection_catalog_units,
     soil_property_units,
     soil_quality_units,
+    store_soil_selection,
     store_user_input,
     build_augmented_soil_report_for_user,
     submit_fao_answers,
@@ -94,6 +95,17 @@ def submit_input(
     repos: Repositories = Depends(get_repositories),
 ):
     store_user_input(data, repos)
+    return success()
+
+
+@router.post(
+    "/soil-selection",
+    response_model=ApiResponse,
+    summary="Store downstream soil selections",
+    description="Stores the later-stage pH and texture selections under the existing user session so downstream models can use them.",
+)
+def submit_soil_selection(data: SoilSelectionRequest):
+    store_soil_selection(data.user_id, data.ph_level, data.texture_class)
     return success()
 
 

@@ -53,6 +53,36 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(session["smu_id"], 31802)
         self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
 
+    def test_soil_selection_is_stored_later_under_same_user_session(self):
+        with patch("api.services.resolve_smu_id", return_value=31802):
+            with self._build_client(
+                [
+                    {"fao_90": "Calcic Vertisols", "share": 100.0},
+                ]
+            ) as client:
+                client.post(
+                    "/submit-input",
+                    json={
+                        "user_id": "u-soil",
+                        "coord": [36.8, 10.1],
+                        "input_level": "high",
+                        "water_supply": "rainfed",
+                    },
+                )
+                response = client.post(
+                    "/soil-selection",
+                    json={
+                        "user_id": "u-soil",
+                        "ph_level": "acidic",
+                        "texture_class": "fine",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        session = user_sessions.get("u-soil")
+        self.assertEqual(session["ph_level"].value, "acidic")
+        self.assertEqual(session["texture_class"].value, "fine")
+
     def test_metadata_selections_exposes_frontend_dropdowns_and_questions(self):
         with self._build_client([]) as client:
             response = client.get("/metadata/selections")
