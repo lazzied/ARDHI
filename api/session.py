@@ -1,3 +1,4 @@
+"""Simple SQLite-backed session storage used to keep per-user workflow state."""
 from contextlib import closing
 import pickle
 import sqlite3

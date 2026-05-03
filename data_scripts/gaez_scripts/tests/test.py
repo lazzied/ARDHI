@@ -1,4 +1,5 @@
-# see if all 
+"""Small ad hoc verification script for checking GAEZ-generated artifacts."""
+# see if all
 import rasterio
 from rasterio.plot import show
 

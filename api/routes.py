@@ -1,21 +1,34 @@
+"""HTTP routes for the WCS backend, kept thin and delegated to service helpers."""
 from typing import Any
 
 from fastapi import APIRouter, Depends
 
 from api.dependencies import Repositories, get_repositories
-from api.models import ApiResponse, AugmentedSoilRequest, CropsNeedsRequest, FaoDecisionRequest, LabReport, OnboardingChoice, UserInput
+from api.models import ApiResponse, AugmentedSoilRequest, CropsNeedsRequest, EconomicSuitabilityRequest, FaoDecisionRequest, LabReport, OnboardingChoice, UserInput
 from api.services import (
     build_augmented_soil_report,
     build_calendar,
     build_crops_info,
     build_crops_needs,
+    build_economic_suitability,
     build_fao_decision,
     build_global_crop_recommendations,
     build_global_soil_quality,
     build_hwsd_soil_report,
+    calendar_units,
+    crop_needs_units,
+    crop_recommendation_units,
+    crops_info_units,
+    economic_units,
+    fao_decision_units,
+    lab_report_units,
+    persist_lab_report,
     build_report_crop_recommendations,
     build_report_soil_quality,
     build_selection_catalog,
+    selection_catalog_units,
+    soil_property_units,
+    soil_quality_units,
     store_user_input,
 )
 from api.session import user_sessions
@@ -44,7 +57,7 @@ def root():
     description="Returns dropdown/select options for user inputs and the full FAO question bank used by the decision flow.",
 )
 def get_selection_catalog():
-    return success(build_selection_catalog())
+    return success(build_selection_catalog(), units=selection_catalog_units())
 
 
 @router.post(
@@ -62,14 +75,10 @@ def onboarding(data: OnboardingChoice):
     "/lab-report",
     response_model=ApiResponse,
     summary="Store lab report data",
-    description="Stores a structured lab report payload in the user session for later report-based soil processing.",
+    description="Stores a structured lab report payload from the external report service, saves it to rapport_values.json, and records it in the user session for later report-based soil processing.",
 )
 def receive_lab_report(data: LabReport):
-    session = user_sessions.get(data.user_id, {})
-    session["lab_report"] = data.lab_report
-    session["lab_report_exists"] = True
-    user_sessions[data.user_id] = session
-    return success()
+    return success(persist_lab_report(data.user_id, data.lab_report), units=lab_report_units())
 
 
 @router.post(
@@ -96,33 +105,33 @@ def get_fao_decision(
     data: FaoDecisionRequest,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_fao_decision(data.user_id, data.coord, data.answers, repos))
+    return success(build_fao_decision(data.user_id, data.coord, data.answers, repos), units=fao_decision_units())
 
 
 @router.get(
     "/global/crop-recommendations/{user_id}",
     response_model=ApiResponse,
     summary="Get global crop recommendations",
-    description="Returns suitability and yield rankings from the global raster-based workflow using the stored user session.",
+    description="Returns raw per-crop suitability and yield information from the global raster-based workflow using the stored user session. Ranking and sorting are expected to be handled by the frontend.",
 )
 def get_global_crop_recommendations(
     user_id: str,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_global_crop_recommendations(user_id, repos))
+    return success(build_global_crop_recommendations(user_id, repos), units=crop_recommendation_units())
 
 
 @router.get(
     "/report/crop-recommendations/{user_id}",
     response_model=ApiResponse,
     summary="Get report-based crop recommendations",
-    description="Returns suitability and yield rankings from the augmented report workflow using the stored user session.",
+    description="Returns raw per-crop suitability and yield information from the augmented report workflow using the stored user session. Ranking and sorting are expected to be handled by the frontend.",
 )
 def get_report_crop_recommendations(
     user_id: str,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_report_crop_recommendations(user_id, repos))
+    return success(build_report_crop_recommendations(user_id, repos), units=crop_recommendation_units())
 
 
 @router.post(
@@ -135,7 +144,7 @@ def get_calendar_props(
     data: UserInput,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_calendar(data, repos))
+    return success(build_calendar(data, repos), units=calendar_units())
 
 
 @router.post(
@@ -148,7 +157,7 @@ def get_global_soil_qualities_factor(
     data: UserInput,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_global_soil_quality(data, repos))
+    return success(build_global_soil_quality(data, repos), units=soil_quality_units())
 
 
 @router.post(
@@ -162,7 +171,7 @@ def get_report_soil_qualities_factor(
     data: UserInput,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_report_soil_quality(data, crop_name, repos))
+    return success(build_report_soil_quality(data, crop_name, repos), units=soil_quality_units())
 
 
 @router.get(
@@ -172,7 +181,25 @@ def get_report_soil_qualities_factor(
     description="Returns EcoCrop-derived crop reference information used by the recommendation flows.",
 )
 def get_crops_info(repos: Repositories = Depends(get_repositories)):
-    return success(build_crops_info(repos))
+    return success(build_crops_info(repos), units=crops_info_units())
+
+
+@router.post(
+    "/economics/suitability",
+    response_model=ApiResponse,
+    summary="Calculate crop economic suitability",
+    description="Runs the PyAEZ-based economic suitability calculation from user-provided crop name, cost, yield, and farm-gate price.",
+)
+def get_economic_suitability(data: EconomicSuitabilityRequest):
+    return success(
+        build_economic_suitability(
+            crop_name=data.crop_name,
+            crop_cost=data.crop_cost,
+            crop_yield=data.crop_yield,
+            farm_price=data.farm_price,
+        ),
+        units=economic_units(),
+    )
 
 
 @router.post(
@@ -185,7 +212,7 @@ def get_crop_needs(
     data: CropsNeedsRequest,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_crops_needs(data.user_input, data.ph_level, data.texture_class, repos))
+    return success(build_crops_needs(data.user_input, data.ph_level, data.texture_class, repos), units=crop_needs_units())
 
 
 @router.post(
@@ -199,7 +226,7 @@ def get_hwsd_soil_report(
     repos: Repositories = Depends(get_repositories),
 ):
     report = build_hwsd_soil_report(data, repos)
-    return success(report["soil_properties"], output_path=report["output_path"])
+    return success(report["soil_properties"], units=soil_property_units(), output_path=report["output_path"])
 
 
 @router.post(
@@ -214,4 +241,4 @@ def get_augmented_soil_report(
     repos: Repositories = Depends(get_repositories),
 ):
     report = build_augmented_soil_report(data.user_input, data.report, repos)
-    return success(report["soil_properties"], output_path=report["output_path"])
+    return success(report["soil_properties"], units=soil_property_units(), output_path=report["output_path"])

@@ -179,3 +179,4 @@ if __name__ == "__main__":
         output_dir   = "engines/edaphic_crop_reqs/results",
         write_output = True,
     )
+"""Parser for one appendix source used to build edaphic crop requirement tables."""

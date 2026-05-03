@@ -1,3 +1,4 @@
+"""Thin PyAEZ wrapper for crop-level economic suitability calculations."""
 from pyaez import EconomicSuitability
 
 

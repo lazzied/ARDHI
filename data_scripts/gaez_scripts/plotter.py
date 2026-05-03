@@ -1,3 +1,4 @@
+"""Quick plotting utilities for inspecting generated GAEZ raster outputs."""
 import numpy as np
 import rasterio
 from rasterio.transform import rowcol

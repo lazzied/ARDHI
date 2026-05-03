@@ -1,4 +1,4 @@
-
+"""Reference metadata templates for GAEZ crops, scenarios, and code mappings."""
 # dimension_profile values:
 #   "historical_only"   -> periods HP8100, HP0120; climate AGERA5; no SSP
 #   "historical+future" -> all 6 periods; historical=AGERA5, future=CMIP6 GCMs;
@@ -1153,3 +1153,5 @@ def resolve_sq_idx_class(class_value):
     """Convert SQ-IDX pixel value to soil quality description."""
     key = f"SQ{class_value}"
     return SOIL_QUALITIES.get(key, {}).get("caption", f"Unknown SQ{class_value}")
+
+"""Reference metadata templates for GAEZ crops, layers, and code mappings."""

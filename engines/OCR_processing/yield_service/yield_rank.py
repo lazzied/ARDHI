@@ -1,3 +1,4 @@
+"""Report-based crop yield scorer that returns one yield record per crop."""
 import logging
 
 from ardhi.db.ardhi import ArdhiRepository

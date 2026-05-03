@@ -1,3 +1,4 @@
+"""Repository helpers for the main ARDHI SQLite database and raster path lookups."""
 import sqlite3
 
 from engines.OCR_processing.models import InputLevel, IrrigationType, ScenarioConfig, Texture, WaterSupply, pH_level

@@ -1,3 +1,4 @@
+"""Developer-only pretty printers for yield scores and ranking snapshots."""
 from engines.global_engines.yield_service.models import CropYieldScore, RankingYield
 
 

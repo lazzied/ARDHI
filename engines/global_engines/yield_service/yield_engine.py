@@ -1,3 +1,4 @@
+"""Global raster-based crop-yield engine that builds per-crop yield scores."""
 import logging
 
 from ardhi.db.ardhi import ArdhiRepository

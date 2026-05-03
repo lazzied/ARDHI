@@ -1,4 +1,6 @@
 """
+Scratch script for splitting appendix-style source files during GAEZ data prep.
+
 Script to split soil requirements Excel file into separate appendices
 Creates 3 files: Appendix_6-3.xlsx, Appendix_6-4.xlsx, Appendix_6-5.xlsx
 Each file includes a README sheet with specific documentation

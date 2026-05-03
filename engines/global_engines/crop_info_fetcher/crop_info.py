@@ -1,4 +1,6 @@
 
+"""Lightweight formatter around EcoCrop crop reference information."""
+
 from ardhi.db.ecocrop import EcoCropRepository
 
 

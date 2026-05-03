@@ -1,3 +1,4 @@
+"""Repository helpers for reading crop metadata and ecology tables from EcoCrop."""
 import sqlite3
 
 from engines.global_engines.constants import CROP_COLUMNS, CULTIVATION_COLUMNS, ECOLOGY_COLUMNS

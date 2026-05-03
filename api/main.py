@@ -1,3 +1,4 @@
+"""FastAPI application entrypoint, startup wiring, and top-level exception handlers."""
 from contextlib import asynccontextmanager
 import logging
 from typing import AsyncIterator

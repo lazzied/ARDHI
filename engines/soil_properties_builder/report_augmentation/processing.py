@@ -1,3 +1,4 @@
+"""Core report-augmentation logic that mixes lab report values with HWSD-derived properties."""
 import json
 from typing import Any, Dict
 from ardhi.db.connections import close_connection, get_hwsd_connection
@@ -227,3 +228,4 @@ if __name__ == "__main__":
         close_connection(conn)
     
     print(f"Done → {output}")
+"""Core report-augmentation logic that mixes lab report values with HWSD-derived properties."""

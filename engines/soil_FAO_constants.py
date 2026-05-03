@@ -1,3 +1,4 @@
+"""Shared category sets and lookup tables for the FAO soil decision logic."""
 # ============================================================
 # 1. CATEGORIZATION — Tunisia subset
 # ============================================================

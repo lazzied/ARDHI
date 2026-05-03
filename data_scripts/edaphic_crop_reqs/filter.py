@@ -1,3 +1,4 @@
+"""Filtering helpers for cleaning intermediate edaphic crop-requirement data."""
 import pandas as pd
 import os
 

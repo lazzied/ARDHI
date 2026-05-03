@@ -1,3 +1,4 @@
+"""Small FastAPI dependency helpers for exposing shared repository objects to routes."""
 from dataclasses import dataclass
 
 from fastapi import HTTPException, Request

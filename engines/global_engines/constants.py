@@ -1,3 +1,4 @@
+"""Shared constant tables for global crop, soil, and EcoCrop-related workflows."""
 from typing import Dict
 
 

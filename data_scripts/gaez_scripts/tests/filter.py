@@ -1,4 +1,4 @@
-
+"""Small experimental filter script used while validating GAEZ data prep."""
 from data_scripts.gaez_scripts.metadata.codes import KEEP_CODES, DROP_MODEL_PARAMETERS
 import tempfile
 import shutil
@@ -102,3 +102,5 @@ filter_lines_inplace(OUTPUT_PATH, KEEP_YIELD_CODES)
 
 
 
+
+"""Small experimental filter script used while validating GAEZ data prep."""

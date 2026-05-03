@@ -1,3 +1,4 @@
+"""Utility script for writing adjusted values back into raster layers during experiments."""
 import numpy as np
 import rasterio
 from rasterio.transform import rowcol

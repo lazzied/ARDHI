@@ -1,3 +1,4 @@
+"""Connection factory helpers for the local SQLite databases used by the backend."""
 import sqlite3
 import logging
 from ardhi.config import ARDHI_DB_PATH, ECOCROP_DB_PATH, HWSD_DB_PATH

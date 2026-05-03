@@ -1,3 +1,4 @@
+"""Developer-only pretty printers for suitability scores and ranking snapshots."""
 from engines.global_engines.suitability_service.models import CropSuitabilityScore, RankingSuitability
 
 

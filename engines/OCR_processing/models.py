@@ -1,3 +1,4 @@
+"""Core OCR-side enums and data models shared by the report-processing pipeline."""
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List
@@ -215,3 +216,4 @@ def get_crop_code(crop_name: str, map_code: str) -> str | None:
             return code
 
     return None
+"""Core OCR-side enums and data models shared by the report-processing pipeline."""

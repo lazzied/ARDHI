@@ -1,4 +1,6 @@
 """
+Audit helpers for checking GAEZ preprocessing outputs.
+
 Post-run audit.
 
 Compares the original URL list against:

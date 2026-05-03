@@ -1,3 +1,4 @@
+"""Request and response models used by the public API."""
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -29,6 +30,10 @@ class UserInput(BaseModel):
         default_factory=dict,
         description="Answered FAO decision questions as {question_id: selected_option}.",
     )
+    needs_report: bool = Field(
+        default=False,
+        description="Whether the user selected the report-based workflow and expects a lab report payload from the external service.",
+    )
     lab_report_exists: bool = Field(default=False, description="Whether a lab report is available for this user.")
     lab_report: Optional[dict] = Field(default=None, description="Optional stored lab report payload.")
     smu_id: Optional[int] = Field(default=None, description="Resolved automatically from coord; not required from frontend.")
@@ -50,8 +55,9 @@ class CropsNeedsRequest(BaseModel):
 
 class AugmentedSoilRequest(BaseModel):
     user_input: UserInput = Field(description="Base user context for report augmentation.")
-    report: str | list[dict[str, Any]] | dict[str, Any] = Field(
-        description="Lab report input as raw JSON string, list of attribute rows, or object payload.",
+    report: str | list[dict[str, Any]] | dict[str, Any] | None = Field(
+        default=None,
+        description="Optional lab report input as raw JSON string, list of attribute rows, or object payload. If omitted, the backend uses the saved report file.",
     )
 
 
@@ -64,7 +70,15 @@ class FaoDecisionRequest(BaseModel):
     )
 
 
+class EconomicSuitabilityRequest(BaseModel):
+    crop_name: str = Field(description="Crop name, for example maize or wheat.")
+    crop_cost: float = Field(description="Production cost in TND/ha.")
+    crop_yield: float = Field(description="Expected crop yield in t/ha.")
+    farm_price: float = Field(description="Farm-gate price in TND/kg.")
+
+
 class ApiResponse(BaseModel):
     status: str = Field(default="success", description="High-level request status.")
     data: Any | None = Field(default=None, description="Endpoint-specific payload.")
+    units: Any | None = Field(default=None, description="Units metadata for numeric and categorical response fields.")
     output_path: str | None = Field(default=None, description="Generated file path when the endpoint creates an output file.")

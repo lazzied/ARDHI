@@ -110,3 +110,4 @@ def validate_and_get_row_idx(
         )
 
     return int(row_idx)
+"""Small reusable helpers used by the edaphic crop-requirement scripts."""

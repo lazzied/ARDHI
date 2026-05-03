@@ -1,3 +1,4 @@
+"""Suitability score models and convenience serializers for global crop evaluation."""
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -100,6 +101,9 @@ class RankingSuitability:
     
     scores: list[CropSuitabilityScore] = field(default_factory=list)
 
+    def scores_to_dict(self) -> list[dict]:
+        return [score.to_dict() for score in self.scores]
+
     @property
     def ranks_by_suitability(self) -> list:
         """All suitable crops sorted by suitability index descending."""
@@ -128,7 +132,6 @@ class RankingSuitability:
         If n exceeds the number of suitable crops, return all suitable crops.
         """
         ranked = self.ranks_by_suitability
-        print("ranked", ranked)
         return ranked[:min(n, len(ranked))]
 
     def to_dict(self) -> dict:

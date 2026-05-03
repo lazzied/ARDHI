@@ -1,3 +1,4 @@
+"""Crop-needs builder that mixes EcoCrop reference data with edaphic augmentation sheets."""
 import logging
 from typing import Any
 

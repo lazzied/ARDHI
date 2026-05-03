@@ -1,3 +1,4 @@
+"""One-off utility for converting MDB sources used in the GAEZ workflow."""
 import pyodbc
 import sqlite3
 import pandas as pd

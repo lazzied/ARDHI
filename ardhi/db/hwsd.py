@@ -1,3 +1,4 @@
+"""Repository helpers for querying HWSD soil-unit and layer data."""
 import logging
 import sqlite3
 

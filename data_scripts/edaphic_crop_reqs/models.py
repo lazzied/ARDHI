@@ -52,3 +52,4 @@ class SoilCharacteristicsBlock:
     input_levels:   List[InputLevel]
     penalties:      List[float]     # e.g. [100, 90, 70, 50, 30, 10]
     thresholds_row: List            # raw crop values for the selected crop
+"""Data models used by the edaphic crop-requirement preprocessing scripts."""

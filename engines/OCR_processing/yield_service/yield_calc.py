@@ -1,3 +1,4 @@
+"""Report-based yield calculation pipeline built on PyAEZ soil constraints."""
 import difflib
 import logging
 import numpy as np

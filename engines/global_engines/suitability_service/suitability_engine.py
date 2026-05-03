@@ -1,3 +1,4 @@
+"""Global raster-based suitability engine that computes per-crop suitability scores."""
 import logging
 
 from ardhi.db.ardhi import ArdhiRepository

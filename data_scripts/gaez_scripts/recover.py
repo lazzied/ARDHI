@@ -1,3 +1,4 @@
+"""Recovery utilities for restarting or repairing interrupted GAEZ data jobs."""
 import logging
 import os
 import sqlite3

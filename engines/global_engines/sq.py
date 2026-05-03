@@ -1,3 +1,4 @@
+"""Global and report-based soil-quality factor builders."""
 import logging
 
 from ardhi.db.ardhi import ArdhiRepository

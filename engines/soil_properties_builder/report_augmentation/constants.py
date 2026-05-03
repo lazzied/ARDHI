@@ -1,4 +1,7 @@
+"""Constants used while merging HWSD soil properties with lab-report values."""
 from typing import Dict
+
+from engines.soil_properties_builder.hwsd2_prop.constants import SOIL_DEPTH
 
 
 NUM_ATTRIBUTES  = [
@@ -49,13 +52,6 @@ REPORT_MAP = {
         "EC":  "Conductivité",
         "CCB": "Carbonates de Calcium",
     }
-
-SOIL_DEPTH = {
-    "Deep (> 100cm)":           150,
-    "Moderately Deep (< 100cm)": 75,
-    "Shallow (< 50cm)":          30,
-    "Very Shallow (< 10cm)":      5,
-}
 
 STRATEGIES: Dict[str, str] = {
     "OC": "READ", "pH": "READ", "EC": "READ", "CCB": "READ",

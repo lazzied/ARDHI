@@ -1,4 +1,4 @@
-
+"""Constants shared by the edaphic crop-requirement extraction scripts."""
 from __future__ import annotations
 from typing import Dict
 
@@ -165,3 +165,4 @@ DRAINAGE_ABBREV_MAP: Dict[str, str] = {
     
 
 SPH_APPLICABILITY_SHARE_VALUES = ("100%", "50%")
+"""Constants shared by the edaphic crop-requirement extraction scripts."""

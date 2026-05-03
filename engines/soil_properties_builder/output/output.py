@@ -1,3 +1,4 @@
+"""Helpers for exporting augmented soil layers to CSV and Excel workbooks."""
 import csv
 import glob
 import logging

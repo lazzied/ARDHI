@@ -1,4 +1,5 @@
-from dataclasses import dataclass, field
+"""Generic dataclasses shared across global-engine outputs."""
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -22,13 +23,7 @@ class CropCalendarClass:
     harvest_date: str
 
     def to_dict(self) -> dict:
-        return {
-            "crop_code": self.crop_code,
-            "planting_day": self.planting_day,
-            "growth_days": self.growth_days,
-            "planting_date": self.planting_date,
-            "harvest_date": self.harvest_date,
-        }
+        return asdict(self)
         
 class SoilQuality(Enum):
     NUTRIENT_AVAILABILITY       = "SQ1"
@@ -52,16 +47,6 @@ class SqClass:
     workability                 : float
     
     def to_dict(self) -> dict:
-        
-        return {
-            "most_limiting_factor"       : self.most_limiting_factor,
-            "nutrient_availability"      : self.nutrient_availability,
-            "nutrient_retention_capacity": self.nutrient_retention_capacity,
-            "rooting_conditions"         : self.rooting_conditions,
-            "oxygen_availability"        : self.oxygen_availability,
-            "salinity_and_sodicity"      : self.salinity_and_sodicity,
-            "lime_and_gypsum"            : self.lime_and_gypsum,
-            "workability"                : self.workability,
-        }
+        return asdict(self)
         
 

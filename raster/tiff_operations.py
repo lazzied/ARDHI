@@ -1,3 +1,4 @@
+"""Raster utility functions for reading TIFF values and resolving SMU identifiers."""
 import os
 import warnings
 import logging

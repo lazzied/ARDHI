@@ -1,8 +1,11 @@
+"""Low-level contract tests for data transformations, repositories, and score serializers."""
 import unittest
 
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.hwsd import HwsdRepository
-from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, pH_level
+from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, InputLevel, WaterSupply, pH_level
+from engines.global_engines.suitability_service.models import CropSuitabilityScore, RankingSuitability
+from engines.global_engines.yield_service.models import CropYieldScore, RankingYield
 from engines.soil_FAO_decision import classify_soil_dynamic, get_next_question
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import augmented_layers_group_to_dict
 from engines.soil_properties_builder.report_augmentation.processing import ReportOperations
@@ -119,6 +122,47 @@ class SoilPropertyContractTests(unittest.TestCase):
         self.assertEqual(default_path, "rainfed-default.tif")
         self.assertEqual(drip_path, "drip-only.tif")
         conn.close()
+
+    def test_ranking_yield_exposes_raw_scores_without_backend_sort_wrapper(self):
+        ranking = RankingYield(
+            scores=[
+                CropYieldScore(
+                    crop_code="MZ",
+                    crop_name="Maize",
+                    input_level=InputLevel.HIGH,
+                    water_supply=WaterSupply.RAINFED,
+                    actual_yield=1000,
+                    potential_regional_yield=1500,
+                )
+            ]
+        )
+
+        payload = ranking.scores_to_dict()
+
+        self.assertIsInstance(payload, list)
+        self.assertEqual(payload[0]["crop_code"], "MZ")
+        self.assertEqual(payload[0]["yield_gap"], 500)
+
+    def test_ranking_suitability_exposes_raw_scores_without_backend_sort_wrapper(self):
+        ranking = RankingSuitability(
+            scores=[
+                CropSuitabilityScore(
+                    crop_code="WH",
+                    crop_name="Wheat",
+                    input_level=InputLevel.HIGH,
+                    water_supply=WaterSupply.RAINFED,
+                    suitability_index=8200,
+                    suitability_class=2,
+                    regional_share=5000,
+                )
+            ]
+        )
+
+        payload = ranking.scores_to_dict()
+
+        self.assertIsInstance(payload, list)
+        self.assertEqual(payload[0]["crop_code"], "WH")
+        self.assertEqual(payload[0]["suitability_index_percentage"], 82.0)
 
 
 if __name__ == "__main__":

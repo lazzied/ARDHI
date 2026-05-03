@@ -1,3 +1,4 @@
+"""Filtering utilities for narrowing HWSD raster and metadata inputs."""
 import rasterio
 from rasterio.mask import mask
 import geopandas as gpd

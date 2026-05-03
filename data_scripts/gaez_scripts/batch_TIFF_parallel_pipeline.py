@@ -1,4 +1,4 @@
-
+"""Batch runner for generating many GAEZ TIFF-derived artifacts in parallel."""
 
 import os
 import time
@@ -178,3 +178,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""Batch runner for generating many GAEZ TIFF-derived artifacts in parallel."""

@@ -1,3 +1,4 @@
+"""Very thin adapter that reuses report yield scores as report suitability records."""
 from engines.global_engines.yield_service.models import RankingYield
 class ReportCropSuitability:
 

@@ -1,4 +1,4 @@
-
+"""Ad hoc debugging helpers used while validating suitability service behavior."""
 import rasterio
 import numpy as np
 import matplotlib.pyplot as plt
@@ -52,3 +52,5 @@ plot_tiff_with_cross(
     tiff_path="D:/ARDHI/TIFF/clipped/GAEZ-V5.RES05-SXX30AS.HP0120.AGERA5.HIST.OLV.LILM.tif",
     coordinates=[(37.024050, 9.435166)],  # (lat, lon) → Tunis ✅
 )
+
+"""Ad hoc debugging helpers used while validating suitability service behavior."""

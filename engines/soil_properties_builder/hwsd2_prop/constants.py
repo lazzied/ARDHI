@@ -1,4 +1,6 @@
 
+
+"""Constants for translating HWSD layer fields into soil-property outputs."""
 SOIL_DEPTH = {
     "Deep (> 100cm)":           150,
     "Moderately Deep (< 100cm)": 75,

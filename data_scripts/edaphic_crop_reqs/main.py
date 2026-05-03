@@ -1,4 +1,6 @@
 """
+High-level entrypoint for building edaphic crop-requirement artifacts.
+
 edaphic_pipeline.py
 ====================
 Sequential pipeline built on top of `run_aggregator`.

@@ -1,3 +1,4 @@
+"""Small OCR-specific model helpers for the report-based yield pipeline."""
 from dataclasses import dataclass
 
 

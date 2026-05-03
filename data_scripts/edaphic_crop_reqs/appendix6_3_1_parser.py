@@ -1,4 +1,4 @@
-
+"""Parser for one appendix source used to build edaphic crop requirement tables."""
 from __future__ import annotations
 import re
 from collections import defaultdict
@@ -343,3 +343,4 @@ if __name__ == "__main__":
     )
     print("\n--- SQ1 preview ---")
     print(results.get("SQ1", "not found"))
+"""Parser for one appendix source used to build edaphic crop requirement tables."""

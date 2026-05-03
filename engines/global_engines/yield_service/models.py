@@ -1,3 +1,4 @@
+"""Yield score models and serializers for global and report recommendation flows."""
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -39,11 +40,27 @@ class CropYieldScore:
             return (self.yield_gap / self.potential_regional_yield) * 100.0
         return None
 
+    def to_dict(self) -> dict:
+        return {
+            "crop_code": self.crop_code,
+            "crop_name": self.crop_name,
+            "input_level": self.input_level,
+            "water_supply": self.water_supply,
+            "actual_yield": self.actual_yield,
+            "potential_regional_yield": self.potential_regional_yield,
+            "yield_gap": self.yield_gap,
+            "yield_gap_pct": self.yield_gap_pct,
+            "has_yield": self.has_yield,
+        }
+
 
 @dataclass
 class RankingYield:
     
     scores: list[CropYieldScore] = field(default_factory=list)
+
+    def scores_to_dict(self) -> list[dict]:
+        return [score.to_dict() for score in self.scores]
 
 
     @property

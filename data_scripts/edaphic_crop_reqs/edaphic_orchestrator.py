@@ -295,3 +295,4 @@ if __name__ == "__main__":
         for sq_label, df in sq_dict.items():
             print(f"\n--- {level}/{sq_label} preview ({len(df)} rows) ---")
             print(df.head())
+"""Orchestrates the edaphic crop-requirement parsing and export workflow."""

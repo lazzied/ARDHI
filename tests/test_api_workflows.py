@@ -1,11 +1,16 @@
+"""API-level workflow tests covering session flow, metadata, and service wrappers."""
 import unittest
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
+from pathlib import Path
+import shutil
 
 from fastapi.testclient import TestClient
 
 from api.main import create_app
 from api.session import user_sessions
+from api.services import fetch_and_persist_external_lab_report, prepare_external_report_contract
 
 
 class ApiWorkflowTests(unittest.TestCase):
@@ -54,12 +59,108 @@ class ApiWorkflowTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
+        units = response.json()["units"]
         self.assertIn("user_input", payload)
         self.assertIn("crop_needs", payload)
         self.assertIn("fao_decision_questions", payload)
         self.assertEqual(payload["user_input"]["input_level"][0]["value"], "low")
         self.assertEqual(payload["crop_needs"]["texture_class"][0]["value"], "fine")
         self.assertEqual(payload["fao_decision_questions"][0]["id"], "water_context")
+        self.assertEqual(units["user_input"]["input_level"], "categorical")
+
+    def test_economic_suitability_endpoint_returns_revenue_metrics(self):
+        with self._build_client([]) as client:
+            response = client.post(
+                "/economics/suitability",
+                json={
+                    "crop_name": "rice",
+                    "crop_cost": 25.0,
+                    "crop_yield": 2.0,
+                    "farm_price": 343.0,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        units = response.json()["units"]
+        self.assertEqual(payload["crop_name"], "rice")
+        self.assertEqual(payload["gross_revenue"], 686000.0)
+        self.assertGreater(payload["net_revenue"], 0)
+        self.assertLess(payload["net_revenue"], payload["gross_revenue"])
+        self.assertEqual(units["gross_revenue"], "TND/ha")
+        self.assertEqual(payload["units"]["crop_cost"], "TND/ha")
+        self.assertEqual(payload["units"]["farm_price"], "TND/kg")
+
+    def test_lab_report_endpoint_saves_external_payload_to_json_file(self):
+        temp_dir = Path("tests/.tmp/report-save-test")
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        report_path = temp_dir / "rapport_values.json"
+
+        try:
+            with patch("api.services.REPORT_INPUT_PATH", report_path):
+                with self._build_client([]) as client:
+                    response = client.post(
+                        "/lab-report",
+                        json={
+                            "user_id": "u-report",
+                            "lab_report": {"report": [{"attribute": "pH", "value": 7.2}]},
+                        },
+                    )
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()["data"]
+                self.assertTrue(payload["lab_report_saved"])
+                self.assertTrue(report_path.exists())
+                saved = json.loads(report_path.read_text(encoding="utf-8"))
+                self.assertEqual(saved["report"][0]["attribute"], "pH")
+                session = user_sessions.get("u-report")
+                self.assertEqual(session["lab_report_path"], str(report_path))
+        finally:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+
+    def test_external_report_fetcher_can_persist_remote_payload(self):
+        temp_dir = Path("tests/.tmp/external-fetch-test")
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        report_path = temp_dir / "rapport_values.json"
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"report": {"report": [{"attribute": "OC", "value": 1.8}]}}
+
+        contract = prepare_external_report_contract(
+            url="https://service.local/report",
+            auth=("user", "pass"),
+            request_contract={
+                "method": "POST",
+                "headers": {"Authorization": "Bearer token"},
+                "json_payload": {"user_id": "u-fetch"},
+                "report_key": "report",
+            },
+        )
+
+        try:
+            with patch("api.services.REPORT_INPUT_PATH", report_path):
+                with patch("api.services.requests.request", return_value=FakeResponse()) as mock_request:
+                    result = fetch_and_persist_external_lab_report("u-fetch", contract)
+
+                self.assertEqual(result["external_report_url"], "https://service.local/report")
+                self.assertTrue(report_path.exists())
+                saved = json.loads(report_path.read_text(encoding="utf-8"))
+                self.assertEqual(saved["report"][0]["attribute"], "OC")
+                session = user_sessions.get("u-fetch")
+                self.assertEqual(session["lab_report_path"], str(report_path))
+                self.assertEqual(mock_request.call_args.kwargs["method"], "POST")
+                self.assertEqual(mock_request.call_args.kwargs["auth"], ("user", "pass"))
+        finally:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
 
     def test_fao_decision_returns_next_question_for_multiple_candidates(self):
         with patch("api.services.resolve_smu_id", return_value=31802):

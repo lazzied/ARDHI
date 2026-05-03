@@ -1,3 +1,4 @@
+"""Builds augmented soil-property layers directly from HWSD records."""
 import logging
 from ardhi.db.connections import close_connection, get_hwsd_connection
 from ardhi.db.hwsd import HwsdRepository

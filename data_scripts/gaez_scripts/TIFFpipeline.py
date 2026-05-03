@@ -1,3 +1,4 @@
+"""Main processing pipeline for turning GAEZ source data into TIFF layers."""
 import os
 import time
 import numpy as np

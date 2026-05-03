@@ -1,3 +1,4 @@
+"""Global crop-calendar engine built from planting-day and crop-cycle raster layers."""
 # RES02-CBD: optimum starting day of crop growth cycle at ~10 km resolution.
 # RES02-CYC: number of days from planting to harvest for maximum yield potential.
 from datetime import date, timedelta

@@ -1,4 +1,6 @@
 """
+Helpers for reading, describing, and validating individual TIFF layers.
+
 GAEZ URL patterns:
   A — static (2 dims):       GAEZ-V5.{map_code}.tif
   B — land cover (3 dims):   GAEZ-V5.LR-LCC.{lc_class}.tif

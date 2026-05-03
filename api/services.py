@@ -1,4 +1,11 @@
+"""Service-layer orchestration for API workflows, session updates, and engine calls."""
+import json
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any
+
 from fastapi import HTTPException
+import requests
 
 from api.dependencies import Repositories
 from api.models import UserInput
@@ -15,6 +22,8 @@ from engines.OCR_processing.suitability_service.suitability_rank import ReportCr
 from engines.OCR_processing.yield_service.yield_rank import ReportCropYield
 from engines.global_engines.crop_info_fetcher.crop_info import CropInfo
 from engines.global_engines.crop_info_fetcher.crop_needs import build_crop_needs_report
+from engines.global_engines.constants import STANDARD_UNITS, YIELD_UNIT_NOTE
+from engines.global_engines.economics_engine import CropEconomicSuitability
 from engines.global_engines.planting_harvesting import CropCalendar
 from engines.global_engines.sq import GlobalSq, ReportSq
 from engines.global_engines.suitability_service.suitability_engine import CropSuitability
@@ -32,10 +41,204 @@ HWSD_SOIL_DIR = "engines/soil_properties_builder/output/results/hwsd_results"
 HWSD_SOIL_FILENAME = "hwsd_soil"
 REPORT_SOIL_DIR = "engines/soil_properties_builder/output/results/report_results"
 REPORT_SOIL_FILENAME = "report_soil"
+REPORT_INPUT_PATH = Path("engines/soil_properties_builder/report_augmentation/input/rapport_values.json")
+
+
+@dataclass
+class ExternalReportRequestContract:
+    url: str
+    method: str = "POST"
+    headers: dict[str, str] = field(default_factory=dict)
+    auth: tuple[str, str] | None = None
+    json_payload: dict[str, Any] | None = None
+    params: dict[str, Any] | None = None
+    timeout_seconds: int = 30
+    report_key: str | None = None
 
 
 def _enum_options(enum_cls) -> list[dict]:
     return [{"value": member.value, "label": member.name.replace("_", " ").title()} for member in enum_cls]
+
+
+def selection_catalog_units() -> dict:
+    return {
+        "user_input": {
+            "input_level": "categorical",
+            "water_supply": "categorical",
+            "irrigation_type": "categorical",
+        },
+        "crop_needs": {
+            "ph_level": "categorical",
+            "texture_class": "categorical",
+        },
+        "fao_decision_questions": {
+            "id": "identifier",
+            "question": "text",
+            "options": "categorical options",
+        },
+    }
+
+
+def fao_decision_units() -> dict:
+    return {
+        "smu_id": "identifier",
+        "selected_fao_90": "categorical",
+        "candidates": {
+            "fao_90": "categorical",
+            "share": "% of SMU composition",
+        },
+        "question": {
+            "id": "identifier",
+            "question": "text",
+            "options": "categorical options",
+        },
+        "surviving_candidates": {
+            "probability": "0-1 score",
+        },
+    }
+
+
+def crop_recommendation_units() -> dict:
+    return {
+        "suitability": {
+            "crop_code": "identifier",
+            "crop_name": "text",
+            "input_level": "categorical",
+            "water_supply": "categorical",
+            "suitability_index": "0-10000 suitability index",
+            "suitability_index_percentage": "%",
+            "suitability_class": "class index (1-9)",
+            "suitability_label": "categorical label",
+            "suitability_description": "text",
+            "regional_share": "0-10000 regional share index",
+            "regional_share_percentage": "%",
+            "is_suitable": "boolean",
+        },
+        "yield": {
+            "crop_code": "identifier",
+            "crop_name": "text",
+            "input_level": "categorical",
+            "water_supply": "categorical",
+            "actual_yield": YIELD_UNIT_NOTE,
+            "potential_regional_yield": YIELD_UNIT_NOTE,
+            "yield_gap": YIELD_UNIT_NOTE,
+            "yield_gap_pct": "%",
+            "has_yield": "boolean",
+        },
+    }
+
+
+def calendar_units() -> dict:
+    return {
+        "crop_code": "identifier",
+        "planting_day": "day of year",
+        "growth_days": "days",
+        "planting_date": "calendar date (Month Day)",
+        "harvest_date": "calendar date (Month Day)",
+    }
+
+
+def soil_quality_units() -> dict:
+    return {
+        "most_limiting_factor": "categorical",
+        "nutrient_availability": "soil quality factor index",
+        "nutrient_retention_capacity": "soil quality factor index",
+        "rooting_conditions": "soil quality factor index",
+        "oxygen_availability": "soil quality factor index",
+        "salinity_and_sodicity": "soil quality factor index",
+        "lime_and_gypsum": "soil quality factor index",
+        "workability": "soil quality factor index",
+    }
+
+
+def crops_info_units() -> dict:
+    return {
+        "id": "identifier",
+        "common_name": "text",
+        "scientific_name": "text",
+        "life_form": "categorical",
+        "physiology": "categorical",
+        "habit": "categorical",
+        "category": "categorical",
+        "life_span": "categorical",
+        "plant_attributes": "text",
+        "notes": "text",
+        "production_system": "categorical",
+        "crop_cycle_min": "days",
+        "crop_cycle_max": "days",
+        "cropping_system": "categorical",
+        "subsystem": "categorical",
+        "companion_species": "text",
+        "mechanization_level": "categorical",
+        "labour_intensity": "categorical",
+    }
+
+
+def crop_needs_units() -> dict:
+    return {
+        "climate_needs": {
+            "temperature": "degrees C",
+            "rainfall": "mm",
+            "light_intensity": "categorical/relative scale",
+        },
+        "terrain_needs": {
+            "altitude": "m",
+            "latitude": "decimal degrees",
+        },
+        "soil_needs": {
+            "pH": "pH",
+            "soil_texture": "categorical",
+            "soil_depth": "cm",
+            "soil_fertility": "categorical",
+            "soil_drainage": "categorical",
+            "soil_salinity": "categorical",
+            "edaphic_attributes": STANDARD_UNITS,
+        },
+    }
+
+
+def soil_property_units() -> dict:
+    return {
+        "smu_id": "identifier",
+        "TXT": "categorical",
+        "DRG": "categorical",
+        "GYP": "%",
+        "GRC": "%",
+        "CEC_clay": "cmol(+)/kg",
+        "CEC_soil": "cmol(+)/kg",
+        "OC": "% weight",
+        "pH": "pH",
+        "EC": "dS/m",
+        "CCB": "%",
+        "TEB": "cmol(+)/kg",
+        "BS": "%",
+        "ESP": "%",
+        "OSD": "boolean",
+        "SPR": "boolean",
+        "VSP": "boolean",
+        "SPH": "categorical",
+        "RSD": "cm",
+    }
+
+
+def economic_units() -> dict:
+    return {
+        "crop_name": "text",
+        "crop_cost": "TND/ha",
+        "crop_yield": "t/ha",
+        "farm_price": "TND/kg",
+        "gross_revenue": "TND/ha",
+        "net_revenue": "TND/ha",
+    }
+
+
+def lab_report_units() -> dict:
+    return {
+        "lab_report_saved": "boolean",
+        "lab_report_path": "filesystem path",
+        "external_report_url": "url",
+        "external_report_method": "HTTP method",
+    }
 
 
 def build_selection_catalog() -> dict:
@@ -65,6 +268,75 @@ def get_session_or_404(user_id: str) -> dict:
     if not data:
         raise HTTPException(status_code=404, detail="No session data found")
     return data
+
+
+def _normalize_report_payload(report_payload):
+    if isinstance(report_payload, str):
+        return json.loads(report_payload)
+    return report_payload
+
+
+def persist_lab_report(user_id: str, report_payload) -> dict:
+    normalized_report = _normalize_report_payload(report_payload)
+    REPORT_INPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with REPORT_INPUT_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(normalized_report, handle, ensure_ascii=False, indent=2)
+
+    session = user_sessions.get(user_id, {})
+    session["lab_report"] = normalized_report
+    session["lab_report_exists"] = True
+    session["lab_report_path"] = str(REPORT_INPUT_PATH)
+    user_sessions[user_id] = session
+    return {
+        "lab_report_path": str(REPORT_INPUT_PATH),
+        "lab_report_saved": True,
+    }
+
+
+def fetch_external_report_payload(
+    contract: ExternalReportRequestContract,
+    request_overrides: dict[str, Any] | None = None,
+) -> dict | list:
+    request_kwargs: dict[str, Any] = {
+        "method": contract.method.upper(),
+        "url": contract.url,
+        "headers": contract.headers or None,
+        "auth": contract.auth,
+        "params": contract.params,
+        "json": contract.json_payload,
+        "timeout": contract.timeout_seconds,
+    }
+    if request_overrides:
+        request_kwargs.update(request_overrides)
+
+    response = requests.request(**request_kwargs)
+    response.raise_for_status()
+    payload = response.json()
+
+    if contract.report_key is not None:
+        try:
+            payload = payload[contract.report_key]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"External report payload did not include report_key '{contract.report_key}'"
+            ) from exc
+
+    if not isinstance(payload, (dict, list)):
+        raise ValueError("External report payload must resolve to a dict or list")
+
+    return payload
+
+
+def fetch_and_persist_external_lab_report(
+    user_id: str,
+    contract: ExternalReportRequestContract,
+    request_overrides: dict[str, Any] | None = None,
+) -> dict:
+    report_payload = fetch_external_report_payload(contract, request_overrides=request_overrides)
+    result = persist_lab_report(user_id, report_payload)
+    result["external_report_url"] = contract.url
+    result["external_report_method"] = contract.method.upper()
+    return result
 
 
 def resolve_smu_id(coord: tuple[float, float]) -> int:
@@ -138,9 +410,11 @@ def build_global_crop_recommendations(user_id: str, repos: Repositories) -> dict
         water_supply=data["water_supply"],
         coord=data["coord"],
     )
+    suitability_scores = crop_suitability.build_ranking_class()
+    yield_scores = crop_yield.build_ranking_class()
     return {
-        "suitability": crop_suitability.build_ranking_class().to_dict(),
-        "yield": crop_yield.build_ranking_class().to_dict(),
+        "suitability": suitability_scores.scores_to_dict(),
+        "yield": yield_scores.scores_to_dict(),
     }
 
 
@@ -155,8 +429,8 @@ def build_report_crop_recommendations(user_id: str, repos: Repositories) -> dict
     ).build_ranking_class()
     ranking_suitability = ReportCropSuitability(ranking_yield).build_ranking_class()
     return {
-        "suitability": ranking_suitability.ratio_to_dict(),
-        "yield": ranking_yield.to_dict(),
+        "suitability": ranking_suitability.scores_to_dict(),
+        "yield": ranking_yield.scores_to_dict(),
     }
 
 
@@ -185,6 +459,36 @@ def build_report_soil_quality(data: UserInput, crop_name: str, repos: Repositori
 
 def build_crops_info(repos: Repositories) -> dict:
     return CropInfo(repos.ecocrop).data
+
+
+def build_economic_suitability(
+    crop_name: str,
+    crop_cost: float,
+    crop_yield: float,
+    farm_price: float,
+) -> dict:
+    economics = CropEconomicSuitability(
+        crop_name=crop_name,
+        crop_cost=crop_cost,
+        crop_yield=crop_yield,
+        farm_price=farm_price,
+    )
+    gross_revenue = farm_price * 1000 * crop_yield
+    return {
+        "crop_name": crop_name,
+        "crop_cost": crop_cost,
+        "crop_yield": crop_yield,
+        "farm_price": farm_price,
+        "gross_revenue": gross_revenue,
+        "net_revenue": economics.net_revenue,
+        "units": {
+            "crop_cost": "TND/ha",
+            "crop_yield": "t/ha",
+            "farm_price": "TND/kg",
+            "gross_revenue": "TND/ha",
+            "net_revenue": "TND/ha",
+        },
+    }
 
 
 def build_crops_needs(
@@ -230,7 +534,11 @@ def build_hwsd_soil_report(data: UserInput, repos: Repositories) -> dict:
 
 def build_augmented_soil_report(data: UserInput, report, repos: Repositories) -> dict:
     resolved = resolve_user_input_context(data, repos)
-    report_ops = ReportOperations(report)
+    report_input = report
+    if report_input is None:
+        session = user_sessions.get(resolved.user_id, {})
+        report_input = session.get("lab_report_path", str(REPORT_INPUT_PATH))
+    report_ops = ReportOperations(report_input)
     hwsd_generator = HWSDPropGenerator(
         resolved.smu_id,
         resolved.fao_90_class,
@@ -253,6 +561,24 @@ def build_augmented_soil_report(data: UserInput, report, repos: Repositories) ->
         "soil_properties": augmented_layers_group_to_dict(group),
         "output_path": output_path,
     }
+
+
+def prepare_external_report_contract(
+    url: str,
+    auth: tuple[str, str] | None = None,
+    request_contract: dict[str, Any] | None = None,
+) -> ExternalReportRequestContract:
+    request_contract = request_contract or {}
+    return ExternalReportRequestContract(
+        url=url,
+        method=request_contract.get("method", "POST"),
+        headers=request_contract.get("headers", {}),
+        auth=auth if auth is not None else request_contract.get("auth"),
+        json_payload=request_contract.get("json_payload"),
+        params=request_contract.get("params"),
+        timeout_seconds=request_contract.get("timeout_seconds", 30),
+        report_key=request_contract.get("report_key"),
+    )
 
 
 def build_fao_decision(user_id: str, coord: tuple[float, float], answers: dict[str, str], repos: Repositories) -> dict:

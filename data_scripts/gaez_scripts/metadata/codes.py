@@ -1,3 +1,4 @@
+"""Code lists and lookup values used while processing GAEZ source data."""
 KEEP_CODES = [
     # suitability_classes
     "RES05-SIX30AS", "RES05-SCX30AS",
