@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+pandas
+openpyxl
+numpy
+rasterio
+geopandas
+requests
+google-crc32c
+PyAEZ

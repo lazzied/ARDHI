@@ -9,10 +9,15 @@ from engines.soil_properties_builder.report_augmentation.constants import CLASS_
 
 
 class ReportOperations():
-    def __init__(self, report: str):
-        # report is the json file path with attribute/value pairs
-        with open(report, encoding="utf-8") as f:
-            self.data = json.load(f)
+    def __init__(self, report: str | list[dict] | dict):
+        # report can be a json file path or already-parsed attribute/value data.
+        if isinstance(report, str):
+            with open(report, encoding="utf-8") as f:
+                self.data = json.load(f)
+        elif isinstance(report, dict):
+            self.data = report.get("lab_report", report.get("data", []))
+        else:
+            self.data = report
         
     def get_attribute_value(self, attribute: str):
         for item in self.data:
@@ -21,12 +26,8 @@ class ReportOperations():
         return None
     
     def get_report_ph_class(self)-> pH_level:
-        
         ph_value = float(self.get_attribute_value("pH"))
-        if ph_value > 7:
-            return pH_level.ACIDIC
-        else:
-            return pH_level.BASIC
+        return pH_level.BASIC if ph_value > 7 else pH_level.ACIDIC
 
 
 class ReadStrategy():
@@ -88,17 +89,21 @@ class CalcStrategy():
         def to_cmolc(g_per_kg, atomic_mass, charge):
             return (g_per_kg * charge * 100) / atomic_mass
         
-        ca = to_cmolc(Ca, atomic_mass=40.08, charge=2)
-        mg = to_cmolc(Mg, atomic_mass=24.31, charge=2)
-        k  = to_cmolc(K,  atomic_mass=39.10, charge=1)
-        na = to_cmolc(Na, atomic_mass=22.99, charge=1)
+        ca = to_cmolc(float(Ca), atomic_mass=40.08, charge=2)
+        mg = to_cmolc(float(Mg), atomic_mass=24.31, charge=2)
+        k  = to_cmolc(float(K),  atomic_mass=39.10, charge=1)
+        na = to_cmolc(float(Na), atomic_mass=22.99, charge=1)
         
         return round(ca + mg + k + na, 4), round(na, 4)
 
     def compute_BS(self, TEB: float, CEC_SOIL: float) -> float:
+        if not CEC_SOIL:
+            return 0.0
         return round(min(100.0 * TEB / CEC_SOIL, 100.0), 4)
 
     def compute_ESP(self, Na_cmolc: float, CEC_SOIL: float) -> float:
+        if not CEC_SOIL:
+            return 0.0
         return round(min(100.0 * Na_cmolc / CEC_SOIL, 100.0), 4)
 
     def compute(self, fao_90_class):
@@ -152,7 +157,7 @@ class ReportPropGenerator:
                 
         return AugmentedLayer("D2", values, d2_hwsd.smu_id)
 
-    def build_D1_augmented_layer(self) -> list[AugmentedLayer]:
+    def build_D1_augmented_layer(self) -> AugmentedLayer:
         
         aug_strategy = AugStrategy(self.hwsd_repo, self.smu_id)
         read_strategy = ReadStrategy(self.report_ops)
@@ -168,9 +173,16 @@ class ReportPropGenerator:
         
         return AugmentedLayer("D1", full_attributes, self.smu_id)
 
-    def build_augmented_layers(self,
-                            d1: AugmentedLayer,
-                            d2: AugmentedLayer) -> AugmentedLayersGroup:
+    def build_augmented_layers(
+        self,
+        d1: AugmentedLayer | None = None,
+        d2: AugmentedLayer | None = None,
+    ) -> AugmentedLayersGroup:
+            if d1 is None:
+                d1 = self.build_D1_augmented_layer()
+            if d2 is None:
+                d2_hwsd = self.hwsd_prop_generator.compute("D2")
+                d2 = self.interpolate(d1, d2_hwsd)
             
             d3_to_d7_group = self.hwsd_prop_generator.build_range_augmented_layers((3, 7))
             d3_to_d7_layers = d3_to_d7_group.layers
@@ -178,13 +190,8 @@ class ReportPropGenerator:
             return AugmentedLayersGroup([d1, d2] + d3_to_d7_layers)
 
 
-    def layers_orchestrator(self) -> AugmentedLayersGroup:
-            
-            d1      = self.build_D1_augmented_layer()
-            d2_hwsd = self.hwsd_prop_generator.compute("D2")
-            d2      = self.interpolate(d1, d2_hwsd)
-            group   = self.build_augmented_layers(d1, d2)
-            
+    def layers_orchestrator(self) -> str:
+            group = self.build_augmented_layers()
             return Output().to_xlsx(group, self.output_dir, self.filename)
 
    

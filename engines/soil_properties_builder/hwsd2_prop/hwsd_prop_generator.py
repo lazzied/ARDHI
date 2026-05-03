@@ -1,10 +1,11 @@
-
+import logging
 from ardhi.db.connections import close_connection, get_hwsd_connection
 from ardhi.db.hwsd import HwsdRepository
-from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, Texture
+from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, Texture, pH_level
 from engines.soil_properties_builder.hwsd2_prop.constants import COLUMNS, SOIL_DEPTH
 from engines.soil_properties_builder.output.output import Output
 
+logger = logging.getLogger(__name__)
 
 class HWSDPropGenerator:
     def __init__(self, smu_id: int, fao_90_class: str, hwsd_repo: HwsdRepository, output_dir: str, filename: str):
@@ -17,6 +18,8 @@ class HWSDPropGenerator:
     def get_soter_texture(self)-> Texture:
         soter_texture_class_code = self.hwsd_repo.get_soter_texture_class(self.smu_id,self.fao_90_class)
         soter_texture_class = self.hwsd_repo.get_code_value("TEXTURE_SOTER", soter_texture_class_code)
+        if not soter_texture_class:
+            raise ValueError(f"No SOTER texture found for SMU {self.smu_id} / {self.fao_90_class}")
         return Texture(soter_texture_class.lower())
             
     def apply_transformations(self, raw: dict) -> dict:
@@ -58,7 +61,19 @@ class HWSDPropGenerator:
         
         return AugmentedLayer(smu_id=self.smu_id, values=final_dict, layer=layer)
     
+    def get_ph_level(self)-> pH_level:
+        ph_val = self.hwsd_repo.get_layer_attribute(self.smu_id,"PH_WATER" , self.fao_90_class )
+        if ph_val is None:
+            raise ValueError(f"No pH value found for SMU {self.smu_id} / {self.fao_90_class}")
+        return pH_level.BASIC if float(ph_val) > 7 else pH_level.ACIDIC
     
+    def get_texture_class(self)-> Texture:
+        texture_code = self.hwsd_repo.get_layer_attribute(self.smu_id,"TEXTURE_SOTER" , self.fao_90_class )
+        texture_val = self.hwsd_repo.get_code_value("TEXTURE_SOTER",texture_code)
+        if not texture_val:
+            raise ValueError(f"No texture value found for SMU {self.smu_id} / {self.fao_90_class}")
+        return Texture(texture_val.lower())
+        
     def build_augmented_layers(self) -> AugmentedLayersGroup:
         
         results = {
@@ -78,14 +93,23 @@ class HWSDPropGenerator:
     def layers_orchestrator(self) -> str:
         
         group = self.build_augmented_layers()
-        print(f"Group: {group}")
+        logger.debug("Built HWSD augmented layers for smu_id=%s fao_90=%s", self.smu_id, self.fao_90_class)
         return Output().to_xlsx(group, self.output_dir, self.filename)
+
+def augmented_layers_group_to_dict(group: AugmentedLayersGroup) -> dict:
+    return {
+        layer.layer: {
+            "smu_id": layer.smu_id,
+            **layer.values,
+        }
+        for layer in group.layers
+    }
 
 if __name__ == "__main__":
     
     smu_id = 31802
     output_dir = "engines/soil_properties_builder/output/results/hwsd_results"
-    filename = "hwsd_augmented_layers"
+    filename = "hwsd_soil"
 
     conn = get_hwsd_connection()
     try:

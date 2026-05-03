@@ -1,10 +1,11 @@
-
 import os
 import warnings
+import logging
 import rasterio
 from rasterio.windows import Window
 
 HWSD_SMU_TIFF = "hwsd_data/hwsd2_smu_tunisia.tif"
+logger = logging.getLogger(__name__)
 
     
 def get_smu_id_value(coord: tuple[float, float]) -> int | None:
@@ -16,10 +17,10 @@ def get_smu_id_value(coord: tuple[float, float]) -> int | None:
     with rasterio.open(HWSD_SMU_TIFF) as src:
         val = list(src.sample([(lon, lat)]))[0][0]
         if val == src.nodata:
-            print(f"[smu_value] coord={coord} -> nodata")
+            logger.debug("SMU lookup returned nodata for coord=%s", coord)
             return None
         val = int(val)
-        print(f"[smu_value] coord={coord} -> {val}")
+        logger.debug("Resolved SMU %s for coord=%s", val, coord)
         return val
 
 def read_tiff_pixel(tiff_path: str, coordinates: tuple[float, float]) -> float:

@@ -1,10 +1,17 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class InputManagement(Enum):
     HIGH = "HIM"
     LOW = "LIM"
+    
+@dataclass
+class CropEcologicalRequirements:
+    climate_needs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    terrain_needs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    soil_needs:    dict[str, dict[str, Any]] = field(default_factory=dict)  
     
 @dataclass
 class CropCalendarClass:
@@ -57,4 +64,4 @@ class SqClass:
             "workability"                : self.workability,
         }
         
-  
+

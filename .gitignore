@@ -5,6 +5,7 @@
 *.csv
 
 __pycache__/
+tests/.tmp/
 soilgrid_data/
 venv/
 

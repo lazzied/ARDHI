@@ -1,4 +1,5 @@
 import difflib
+import logging
 import numpy as np
 from pyaez import SoilConstraints
 from ardhi.db.ardhi import ArdhiRepository
@@ -6,12 +7,14 @@ from ardhi.db.connections import close_connection, get_ardhi_connection, get_hws
 from ardhi.db.hwsd import HwsdRepository
 from engines.OCR_processing.models import (
     DRIP_IRRIGATED_CROPS, GRAVITY_IRRIGATED_CROPS, INPUT_LEVEL_TO_PYAEZ, 
-    IRRIGATION_TO_DB_STR, RAINFED_SPRINKLER_CROPS, InputLevel, IrrigationType, ScenarioConfig, SiteContext, 
+    RAINFED_SPRINKLER_CROPS, InputLevel, IrrigationType, ScenarioConfig, SiteContext, 
     Texture, WaterSupply, WaterSupplyIndex, get_crop_code, pH_level
 )
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import HWSDPropGenerator
 from engines.soil_properties_builder.report_augmentation.processing import ReportOperations, ReportPropGenerator
 from raster.tiff_operations import get_smu_id_value, read_tiff_pixel
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +73,6 @@ class YieldRepository:
             crop_code=crop_code,
             map_code=map_code,
         )
-        print("")
         return read_tiff_pixel(tiff_path, self.site.coordinates)
 
     def get_agroclimatic_yield(self) -> float:
@@ -78,34 +80,28 @@ class YieldRepository:
 
     def get_full_constraints_yield(self) -> float:
         crop_code = get_crop_code(self.scenario.crop_name, "RES02")
-        print(f"[debug] crop_code={crop_code}, map_code=RES05-YLX30AS, "
-            f"input_level={self.scenario.input_level.value}, "
-            f"water_supply={self.scenario.water_supply.value}")
+        logger.debug(
+            "Fetching full-constraints yield crop_code=%s input_level=%s water_supply=%s",
+            crop_code,
+            self.scenario.input_level.value,
+            self.scenario.water_supply.value,
+        )
         return self._get_yield_from_map("RES05", "RES05-YLX30AS")
 
     def get_edaphic_paths(self) -> tuple[str, str]:
         validated_name = validate_crop_name(
             self.scenario.crop_name, self.scenario.water_supply, self.scenario.irrigation_type
         )
-        
-        base_query = {
-            "input_level": self.scenario.input_level,
-            "crop_name": validated_name,
-            "ph_level": self.site.ph_level,
-            "texture_class": self.site.texture_class
-        }
 
-        rainfed_path = self.ardhi_repo.query_edaphic_path(
-            water_supply_str="rainfed_sprinkler", **base_query
-        )
+
+
+        rainfed_path = self.ardhi_repo.query_edaphic_path(self.scenario,self.site.ph_level,self.site.texture_class)
+        
 
         if self.scenario.water_supply == WaterSupply.RAINFED:
             return rainfed_path, rainfed_path
 
-        irr_str = IRRIGATION_TO_DB_STR[self.scenario.irrigation_type]
-        irrigated_path = self.ardhi_repo.query_edaphic_path(
-            water_supply_str=irr_str, **base_query
-        )
+        irrigated_path = self.ardhi_repo.query_edaphic_path(self.scenario,self.site.ph_level,self.site.texture_class)
         return rainfed_path, irrigated_path
 
 # ---------------------------------------------------------------------------
