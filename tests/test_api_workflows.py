@@ -29,6 +29,36 @@ class ApiWorkflowTests(unittest.TestCase):
         app = create_app(repositories=fake_repos, lifespan_enabled=False)
         return TestClient(app)
 
+    def test_calendar_get_reads_from_stored_user_session(self):
+        fake_calendar_item = SimpleNamespace(
+            to_dict=lambda: {
+                "crop_code": "WHE",
+                "planting_day": 120,
+                "growth_days": 140,
+                "planting_date": "April 29",
+                "harvest_date": "September 16",
+            }
+        )
+        with patch("api.services.resolve_smu_id", return_value=31802):
+            with patch("api.services.CropCalendar") as mock_calendar:
+                mock_calendar.return_value.crop_calendar_class_factory.return_value = [fake_calendar_item]
+                with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                    client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u-calendar",
+                            "coord": [36.8, 10.1],
+                            "input_level": "high",
+                            "water_supply": "rainfed",
+                        },
+                    )
+                    response = client.get("/calendar/u-calendar")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload[0]["crop_code"], "WHE")
+        self.assertEqual(payload[0]["planting_day"], 120)
+
     def test_submit_input_resolves_smu_and_fao_context(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with self._build_client(

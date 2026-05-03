@@ -456,6 +456,10 @@ def build_calendar(data: UserInput, repos: Repositories) -> list[dict]:
     return [item.to_dict() for item in calendar.crop_calendar_class_factory()]
 
 
+def build_calendar_for_user(user_id: str, repos: Repositories) -> list[dict]:
+    return build_calendar(get_user_input_from_session(user_id), repos)
+
+
 def build_global_soil_quality(data: UserInput, repos: Repositories) -> dict:
     return GlobalSq(
         ardhi_repo=repos.ardhi,

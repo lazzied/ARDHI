@@ -7,6 +7,7 @@ from api.dependencies import Repositories, get_repositories
 from api.models import ApiResponse, EconomicSuitabilityRequest, FaoAnswersRequest, FaoDecisionRequest, LabReport, OnboardingChoice, SoilSelectionRequest, UserInput
 from api.services import (
     build_calendar,
+    build_calendar_for_user,
     build_crops_info,
     build_crops_needs_for_user,
     build_economic_suitability,
@@ -169,13 +170,21 @@ def get_report_crop_recommendations(
     return success(build_report_crop_recommendations(user_id, repos), units=crop_recommendation_units())
 
 
-@router.post(
-    "/calendar",
+@router.get(
+    "/calendar/{user_id}",
     response_model=ApiResponse,
     summary="Get crop calendar",
-    description="Returns planting and harvest timing for crops based on the provided user input.",
+    description="Returns planting and harvest timing for crops using the stored user session.",
 )
 def get_calendar_props(
+    user_id: str,
+    repos: Repositories = Depends(get_repositories),
+):
+    return success(build_calendar_for_user(user_id, repos), units=calendar_units())
+
+
+@router.post("/calendar", include_in_schema=False, response_model=ApiResponse)
+def legacy_get_calendar_props(
     data: UserInput,
     repos: Repositories = Depends(get_repositories),
 ):
