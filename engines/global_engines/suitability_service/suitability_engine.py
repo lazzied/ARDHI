@@ -4,7 +4,7 @@ import logging
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection
 from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
-from engines.OCR_processing.models import InputLevel, WaterSupply
+from engines.OCR_processing.models import InputLevel, IrrigationType, WaterSupply
 from engines.global_engines.suitability_service.debug_print_suitability import print_suitability_ranking
 from engines.global_engines.suitability_service.models import SUITABILITY_LAYERS, CropSuitabilityScore, RankingSuitability
 from raster.tiff_operations import read_tiff_pixel
@@ -26,11 +26,13 @@ class CropSuitability:
         ardhi_repo: ArdhiRepository,
         input_level: InputLevel,
         water_supply: WaterSupply,
+        irrigation_type: IrrigationType | None,
         coord: tuple,
     ):
         self.ardhi_repo = ardhi_repo
         self.input_level = input_level
         self.water_supply = water_supply
+        self.irrigation_type = irrigation_type
         self.coord = coord
 
         self.crop_names = self.build_crop_names()
@@ -53,7 +55,12 @@ class CropSuitability:
 
     def build_tiff_dict(self) -> None:
         for key, map_code in SUITABILITY_LAYERS.items():
-            paths_dict = self.ardhi_repo.get_crops_tiff_paths(map_code, self.input_level, self.water_supply)
+            paths_dict = self.ardhi_repo.get_crops_tiff_paths(
+                map_code,
+                self.input_level,
+                self.water_supply,
+                self.irrigation_type,
+            )
             self.tiff_dict[key.lower()] = paths_dict
         logger.debug("Loaded suitability raster maps for %s crop codes", len(self.crop_names))
 
@@ -101,6 +108,7 @@ if __name__ == "__main__":
         ardhi_repo,
         input_level,
         water_supply,
+        None,
         coord,
     )
 

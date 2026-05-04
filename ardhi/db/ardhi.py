@@ -14,6 +14,13 @@ class ArdhiRepository:
         conn.row_factory = sqlite3.Row
         self.conn = conn
         self.cursor = self.conn.cursor()
+        self._table_columns_cache: dict[str, set[str]] = {}
+
+    def _table_has_column(self, table: str, column: str) -> bool:
+        if table not in self._table_columns_cache:
+            rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+            self._table_columns_cache[table] = {row["name"] for row in rows}
+        return column in self._table_columns_cache[table]
 
     @staticmethod
     def _append_optional_irrigation(query: str, params: list, irrigation_type: IrrigationType | None) -> tuple[str, list]:
@@ -24,10 +31,28 @@ class ArdhiRepository:
             params.append(_enum_value(irrigation_type))
         return query, params
 
-    def _fetch_file_paths(self, table: str, key_column: str, filters: dict[str, object]) -> dict[str, str]:
+    @staticmethod
+    def _normalize_water_context(
+        water_supply: WaterSupply,
+        irrigation_type: IrrigationType | None,
+    ) -> tuple[WaterSupply, IrrigationType | None]:
+        if _enum_value(water_supply) == WaterSupply.IRRIGATED.value and _enum_value(irrigation_type) == IrrigationType.SPRINKLER.value:
+            return WaterSupply.RAINFED, None
+        return water_supply, irrigation_type
+
+    def _fetch_file_paths(
+        self,
+        table: str,
+        key_column: str,
+        filters: dict[str, object],
+        irrigation_type: IrrigationType | None = None,
+    ) -> dict[str, str]:
         where_clause = " AND ".join(f"{column} = ?" for column in filters)
         query = f"SELECT {key_column}, file_path FROM {table} WHERE {where_clause}"
-        rows = self.conn.execute(query, [_enum_value(value) for value in filters.values()]).fetchall()
+        params = [_enum_value(value) for value in filters.values()]
+        if self._table_has_column(table, "irrigation_type"):
+            query, params = self._append_optional_irrigation(query, params, irrigation_type)
+        rows = self.conn.execute(query, params).fetchall()
         return {row[key_column]: row["file_path"] for row in rows}
 
     def _fetch_single_file_path(
@@ -39,11 +64,19 @@ class ArdhiRepository:
         where_clause = " AND ".join(f"{column} = ?" for column in filters)
         query = f"SELECT file_path FROM {table} WHERE {where_clause}"
         params = [_enum_value(value) for value in filters.values()]
-        query, params = self._append_optional_irrigation(query, params, irrigation_type)
+        if self._table_has_column(table, "irrigation_type"):
+            query, params = self._append_optional_irrigation(query, params, irrigation_type)
         row = self.cursor.execute(query, params).fetchone()
         return row["file_path"].strip() if row else None
 
-    def get_crops_tiff_paths(self, map_code: str, input_level: InputLevel, water_supply: WaterSupply) -> dict[str, str]:
+    def get_crops_tiff_paths(
+        self,
+        map_code: str,
+        input_level: InputLevel,
+        water_supply: WaterSupply,
+        irrigation_type: IrrigationType | None = None,
+    ) -> dict[str, str]:
+        water_supply, irrigation_type = self._normalize_water_context(water_supply, irrigation_type)
         return self._fetch_file_paths(
             "tiff_files",
             "crop_code",
@@ -52,6 +85,7 @@ class ArdhiRepository:
                 "input_level": input_level,
                 "water_supply": water_supply,
             },
+            irrigation_type=irrigation_type,
         )
 
     def query_tiff_path(
@@ -62,6 +96,7 @@ class ArdhiRepository:
         map_code: str,
         irrigation_type: IrrigationType = None,
     ) -> str | None:
+        water_supply, irrigation_type = self._normalize_water_context(water_supply, irrigation_type)
         return self._fetch_single_file_path(
             "tiff_files",
             {
@@ -81,6 +116,7 @@ class ArdhiRepository:
         input_level: InputLevel,
         irrigation_type: IrrigationType = None,
     ) -> str | None:
+        water_supply, irrigation_type = self._normalize_water_context(water_supply, irrigation_type)
         return self._fetch_single_file_path(
             "tiff_files",
             {
@@ -98,16 +134,20 @@ class ArdhiRepository:
         ph_level: pH_level,
         texture_class: Texture,
     ) -> str | None:
+        water_supply, irrigation_type = self._normalize_water_context(
+            scenario.water_supply,
+            scenario.irrigation_type,
+        )
         return self._fetch_single_file_path(
             "edaphic_outputs",
             {
                 "input_level": scenario.input_level,
-                "water_supply": scenario.water_supply,
+                "water_supply": water_supply,
                 "crop_name": scenario.crop_name,
                 "ph_level": ph_level,
                 "texture_class": texture_class,
             },
-            irrigation_type=scenario.irrigation_type,
+            irrigation_type=irrigation_type,
         )
 
     def query_crop_edaphic_paths(
@@ -118,6 +158,7 @@ class ArdhiRepository:
         texture_class: Texture,
         irrigation_type: IrrigationType = None,
     ) -> dict:
+        water_supply, irrigation_type = self._normalize_water_context(water_supply, irrigation_type)
         query = """
             SELECT crop_name, file_path
             FROM edaphic_outputs
@@ -132,7 +173,8 @@ class ArdhiRepository:
             ph_level.value,
             texture_class.value,
         ]
-        query, params = self._append_optional_irrigation(query, params, irrigation_type)
+        if self._table_has_column("edaphic_outputs", "irrigation_type"):
+            query, params = self._append_optional_irrigation(query, params, irrigation_type)
         rows = self.cursor.execute(query, params).fetchall()
         return {row["crop_name"]: row["file_path"] for row in rows}
 

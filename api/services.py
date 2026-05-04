@@ -1,5 +1,6 @@
 """Service-layer orchestration for API workflows, session updates, and engine calls."""
 import json
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
@@ -8,7 +9,7 @@ from fastapi import HTTPException
 import requests
 
 from api.dependencies import Repositories
-from api.models import UserInput
+from api.models import SubmitInputRequest, UserInput
 from api.session import user_sessions
 from engines.OCR_processing.models import (
     InputLevel,
@@ -28,7 +29,7 @@ from engines.global_engines.planting_harvesting import CropCalendar
 from engines.global_engines.sq import GlobalSq, ReportSq
 from engines.global_engines.suitability_service.suitability_engine import CropSuitability
 from engines.global_engines.yield_service.yield_engine import CropYield
-from engines.soil_FAO_decision import QUESTION_FLOW, classify_soil_dynamic
+from engines.soil_FAO_decision import QUESTION_FLOW, classify_soil_dynamic, get_relevant_questions
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import (
     HWSDPropGenerator,
     augmented_layers_group_to_dict,
@@ -377,18 +378,51 @@ def resolve_user_input_context(data: UserInput, repos: Repositories) -> UserInpu
     return data.model_copy(update={"smu_id": smu_id, "fao_90_class": fao_90_class})
 
 
-def store_user_input(data: UserInput, repos: Repositories) -> None:
-    resolved = resolve_user_input_context(data, repos)
-    session = user_sessions.get(resolved.user_id, {})
-    session.update(resolved.model_dump())
+def derive_soil_selection(smu_id: int, fao_90_class: str, repos: Repositories) -> dict[str, Any]:
+    generator = HWSDPropGenerator(
+        smu_id,
+        fao_90_class,
+        repos.hwsd,
+        HWSD_SOIL_DIR,
+        HWSD_SOIL_FILENAME,
+    )
+    return {
+        "ph_level": generator.get_ph_level(),
+        "texture_class": generator.get_texture_class(),
+    }
+
+
+def store_user_input(data: SubmitInputRequest | UserInput, repos: Repositories) -> None:
+    session = user_sessions.get(data.user_id, {})
+    base_user_input = UserInput(
+        user_id=data.user_id,
+        coord=data.coord,
+        input_level=data.input_level,
+        water_supply=data.water_supply,
+        irrigation_type=data.irrigation_type,
+        answers=session.get("answers", {}),
+        needs_report=session.get("needs_report", False),
+        lab_report_exists=session.get("lab_report_exists", False),
+        lab_report=session.get("lab_report"),
+        ph_level=session.get("ph_level"),
+        texture_class=session.get("texture_class"),
+        smu_id=session.get("smu_id"),
+        fao_90_class=session.get("fao_90_class"),
+    )
+    resolved = resolve_user_input_context(base_user_input, repos)
+    session.update(
+        {
+            "user_id": resolved.user_id,
+            "coord": resolved.coord,
+            "input_level": resolved.input_level,
+            "water_supply": resolved.water_supply,
+            "irrigation_type": resolved.irrigation_type,
+            "smu_id": resolved.smu_id,
+            "fao_90_class": resolved.fao_90_class,
+        }
+    )
+    session.update(derive_soil_selection(resolved.smu_id, resolved.fao_90_class, repos))
     user_sessions[resolved.user_id] = session
-
-
-def store_soil_selection(user_id: str, ph_level: pH_level, texture_class: Texture) -> None:
-    session = get_session_or_404(user_id)
-    session["ph_level"] = ph_level
-    session["texture_class"] = texture_class
-    user_sessions[user_id] = session
 
 
 def _store_fao_decision_state(
@@ -398,6 +432,7 @@ def _store_fao_decision_state(
     candidates: list[dict],
     answers: dict[str, str],
     selected_fao_90: str | None = None,
+    repos: Repositories | None = None,
 ) -> None:
     session = user_sessions.get(user_id, {})
     session.update(
@@ -410,17 +445,57 @@ def _store_fao_decision_state(
     )
     if selected_fao_90 is not None:
         session["fao_90_class"] = selected_fao_90
+        if repos is not None:
+            session.update(derive_soil_selection(smu_id, selected_fao_90, repos))
     user_sessions[user_id] = session
+
+
+def _candidate_input_from_candidates(candidates: list[dict]) -> dict[str, float]:
+    return {item["fao_90"]: item["share"] / 100.0 for item in candidates}
+
+
+def _normalize_fao_answer_keys(user_id: str, answers: dict[str, str], repos: Repositories) -> dict[str, str]:
+    if not answers:
+        return {}
+
+    session = get_session_or_404(user_id)
+    questions = session.get("fao_questions")
+    if not questions:
+        data = get_user_input_from_session(user_id)
+        fao_context = get_fao_candidates_for_coord(data.coord, repos)
+        candidates = fao_context["candidates"]
+        questions = get_relevant_questions(_candidate_input_from_candidates(candidates))
+
+    mapped_answers: dict[str, str] = {}
+    question_text_to_id = {question["question"]: question["id"] for question in questions}
+    for key, value in answers.items():
+        if re.fullmatch(r"question\d+", key):
+            index = int(key.replace("question", "")) - 1
+            if index < 0 or index >= len(questions):
+                raise HTTPException(status_code=400, detail=f"Unknown FAO answer key: {key}")
+            mapped_answers[questions[index]["id"]] = value
+        elif key in question_text_to_id:
+            mapped_answers[question_text_to_id[key]] = value
+        else:
+            mapped_answers[key] = value
+    return mapped_answers
 
 
 def build_global_crop_recommendations(user_id: str, repos: Repositories) -> dict:
     data = get_session_or_404(user_id)
-    crop_suitability = CropSuitability(repos.ardhi, data["input_level"], data["water_supply"], data["coord"])
     crop_yield = CropYield(
         repos.ardhi,
         input_level=data["input_level"],
         water_supply=data["water_supply"],
+        irrigation_type=data.get("irrigation_type"),
         coord=data["coord"],
+    )
+    crop_suitability = CropSuitability(
+        repos.ardhi,
+        data["input_level"],
+        data["water_supply"],
+        data.get("irrigation_type"),
+        data["coord"],
     )
     suitability_scores = crop_suitability.build_ranking_class()
     yield_scores = crop_yield.build_ranking_class()
@@ -437,6 +512,7 @@ def build_report_crop_recommendations(user_id: str, repos: Repositories) -> dict
         repos.ardhi,
         data["input_level"],
         data["water_supply"],
+        data.get("irrigation_type"),
         data["coord"],
     ).build_ranking_class()
     ranking_suitability = ReportCropSuitability(ranking_yield).build_ranking_class()
@@ -452,6 +528,7 @@ def build_calendar(data: UserInput, repos: Repositories) -> list[dict]:
         coord=data.coord,
         input_level=data.input_level,
         water_supply=data.water_supply,
+        irrigation_type=data.irrigation_type,
     )
     return [item.to_dict() for item in calendar.crop_calendar_class_factory()]
 
@@ -533,6 +610,7 @@ def build_crops_needs(
         data.water_supply,
         ph_level,
         texture_class,
+        data.irrigation_type,
     )
     return {
         crop_name: {
@@ -635,11 +713,12 @@ def build_fao_decision(user_id: str, coord: tuple[float, float], answers: dict[s
 
     if len(candidates) == 1:
         selected_fao_90 = candidates[0]["fao_90"]
-        _store_fao_decision_state(user_id, coord, smu_id, candidates, answers, selected_fao_90)
+        _store_fao_decision_state(user_id, coord, smu_id, candidates, answers, selected_fao_90, repos)
         return {
             "status": "complete",
             "smu_id": smu_id,
             "selected_fao_90": selected_fao_90,
+            "selected_fao_class": selected_fao_90,
             "candidates": candidates,
             "decision": {
                 "reason": "Only one FAO90 class is present for this SMU.",
@@ -653,6 +732,7 @@ def build_fao_decision(user_id: str, coord: tuple[float, float], answers: dict[s
 
     if result["status"] == "complete":
         result["selected_fao_90"] = result.pop("selected_soil", None)
+        result["selected_fao_class"] = result["selected_fao_90"]
         _store_fao_decision_state(
             user_id,
             coord,
@@ -660,6 +740,7 @@ def build_fao_decision(user_id: str, coord: tuple[float, float], answers: dict[s
             candidates,
             answers,
             result["selected_fao_90"],
+            repos,
         )
     else:
         _store_fao_decision_state(user_id, coord, smu_id, candidates, answers)
@@ -669,14 +750,26 @@ def build_fao_decision(user_id: str, coord: tuple[float, float], answers: dict[s
 
 def build_fao_questions(user_id: str, repos: Repositories) -> dict:
     data = get_user_input_from_session(user_id)
-    session = get_session_or_404(user_id)
-    answers = session.get("answers", {})
-    return build_fao_decision(user_id, data.coord, answers, repos)
+    fao_context = get_fao_candidates_for_coord(data.coord, repos)
+    smu_id = fao_context["smu_id"]
+    candidates = fao_context["candidates"]
+    smu_input = {item["fao_90"]: item["share"] / 100.0 for item in candidates}
+    questions = get_relevant_questions(smu_input)
+    _store_fao_decision_state(user_id, data.coord, smu_id, candidates, {}, None)
+    session = user_sessions.get(user_id, {})
+    session["fao_questions"] = questions
+    user_sessions[user_id] = session
+
+    return {
+        "smu_id": smu_id,
+        "candidates": candidates,
+        "questions": questions,
+    }
 
 
 def submit_fao_answers(user_id: str, answers: dict[str, str], repos: Repositories) -> dict:
     data = get_user_input_from_session(user_id)
     session = get_session_or_404(user_id)
     merged_answers = dict(session.get("answers", {}))
-    merged_answers.update(answers)
+    merged_answers.update(_normalize_fao_answer_keys(user_id, answers, repos))
     return build_fao_decision(user_id, data.coord, merged_answers, repos)

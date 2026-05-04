@@ -1,7 +1,7 @@
 """Request and response models used by the public API."""
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from engines.OCR_processing.models import InputLevel, IrrigationType, Texture, WaterSupply, pH_level
 from engines.global_engines.models import InputManagement
@@ -11,12 +11,66 @@ class OnboardingChoice(BaseModel):
     user_id: str = Field(description="Frontend-generated unique user/session identifier.")
     lab_report_exists: bool = Field(description="Whether the user already has a lab soil report to upload.")
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "sim1",
+                "lab_report_exists": False,
+            }
+        }
+    }
+
 
 class LabReport(BaseModel):
     user_id: str = Field(description="Frontend-generated unique user/session identifier.")
     lab_report: dict | list[dict[str, Any]] = Field(
         description="Structured lab report payload captured by the frontend or OCR flow."
     )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "sim1",
+                "lab_report": [
+                    {
+                        "attribute": "pH",
+                        "iso_method": "NF EN ISO 10390 (2022)",
+                        "unit": "---",
+                        "value": 5,
+                    }
+                ],
+            }
+        }
+    }
+
+
+class SubmitInputRequest(BaseModel):
+    user_id: str = Field(description="Frontend-generated unique user/session identifier.")
+    coord: tuple[float, float] = Field(description="User location as [latitude, longitude].")
+    input_level: InputLevel = Field(description="Management/input level selected by the user.")
+    water_supply: WaterSupply = Field(description="Water supply mode selected by the user.")
+    irrigation_type: Optional[IrrigationType] = Field(
+        default=None,
+        description="Irrigation method when water_supply is irrigated.",
+    )
+
+    @model_validator(mode="after")
+    def normalize_irrigation_type(self):
+        if self.water_supply == WaterSupply.RAINFED:
+            self.irrigation_type = None
+        return self
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "sim1",
+                "coord": [36.858096, 9.962084],
+                "input_level": "low",
+                "water_supply": "rainfed",
+                "irrigation_type": None,
+            }
+        }
+    }
 
 
 class UserInput(BaseModel):
@@ -65,6 +119,19 @@ class FaoDecisionRequest(BaseModel):
         description="Current FAO decision answers as {question_id: selected_option}.",
     )
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "sim1",
+                "coord": [36.858096, 9.962084],
+                "answers": {
+                    "question1": "answer",
+                    "question2": "answer",
+                },
+            }
+        }
+    }
+
 
 class FaoAnswersRequest(BaseModel):
     user_id: str = Field(description="Frontend-generated unique user/session identifier.")
@@ -73,11 +140,17 @@ class FaoAnswersRequest(BaseModel):
         description="Submitted FAO decision answers as {question_id: selected_option}.",
     )
 
-
-class SoilSelectionRequest(BaseModel):
-    user_id: str = Field(description="Frontend-generated unique user/session identifier.")
-    ph_level: pH_level = Field(description="Soil pH class selected later in the workflow.")
-    texture_class: Texture = Field(description="Soil texture class selected later in the workflow.")
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "sim1",
+                "answers": {
+                    "What's the water situation here?": "Wet most of the year, marshy or boggy",
+                    "When you dig down, what do you find?": "A proper soil with clear separate layers",
+                },
+            }
+        }
+    }
 
 
 class EconomicSuitabilityRequest(BaseModel):
@@ -90,5 +163,3 @@ class EconomicSuitabilityRequest(BaseModel):
 class ApiResponse(BaseModel):
     status: str = Field(default="success", description="High-level request status.")
     data: Any | None = Field(default=None, description="Endpoint-specific payload.")
-    units: Any | None = Field(default=None, description="Units metadata for numeric and categorical response fields.")
-    output_path: str | None = Field(default=None, description="Generated file path when the endpoint creates an output file.")

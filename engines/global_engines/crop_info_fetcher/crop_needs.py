@@ -8,7 +8,7 @@ from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import close_connection, get_ecocrop_connection
 from ardhi.db.ecocrop import EcoCropRepository
 from ardhi.db.hwsd import HwsdRepository
-from engines.OCR_processing.models import InputLevel, Texture, WaterSupply, pH_level
+from engines.OCR_processing.models import InputLevel, IrrigationType, Texture, WaterSupply, pH_level
 from engines.global_engines.constants import (
     ASCENDING_ATTRIBUTES,
     ATTRIBUTE_TO_HEADER,
@@ -146,11 +146,18 @@ def build_crop_needs_report(
     water_supply: WaterSupply,
     ph_level: pH_level,
     texture_class: Texture,
+    irrigation_type: IrrigationType | None = None,
 ) -> dict[str, CropEcologicalRequirements]:
     result = {}
     skipped = []
 
-    crops_edaphic_paths_dict = ardhi_repo.query_crop_edaphic_paths(input_level, water_supply, ph_level, texture_class)
+    crops_edaphic_paths_dict = ardhi_repo.query_crop_edaphic_paths(
+        input_level,
+        water_supply,
+        ph_level,
+        texture_class,
+        irrigation_type,
+    )
 
     for crop_name, path in crops_edaphic_paths_dict.items():
         edaphic_augmentation = EdaphicAugmentation(path)
@@ -194,6 +201,7 @@ if __name__ == "__main__":
         WaterSupply.RAINFED,
         pH_level.BASIC,
         Texture.FINE,
+        None,
     )
     logger.info("Built %s crop ecology records", len(report))
 

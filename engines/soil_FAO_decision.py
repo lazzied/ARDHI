@@ -175,6 +175,33 @@ def get_next_question(smu_input: dict, answers: dict[str, str] | None = None) ->
     }
 
 
+def get_relevant_questions(smu_input: dict) -> list[dict]:
+    if not smu_input:
+        return []
+    if len(smu_input) <= 1:
+        return []
+
+    present_cats = get_present_categories(smu_input)
+    if not present_cats:
+        return []
+
+    questions = []
+    for question in QUESTION_FLOW:
+        if question.required_categories and not (present_cats & question.required_categories):
+            continue
+        options = _get_relevant_options(question, present_cats)
+        if len(options) <= 1:
+            continue
+        questions.append(
+            {
+                "id": question.id,
+                "question": question.question,
+                "options": options,
+            }
+        )
+    return questions
+
+
 def run_decision_tree(candidate_cats: set, asker: Callable) -> tuple:
     """
     Walk the decision tree and return (final_categories, trace).

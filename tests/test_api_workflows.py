@@ -40,19 +40,20 @@ class ApiWorkflowTests(unittest.TestCase):
             }
         )
         with patch("api.services.resolve_smu_id", return_value=31802):
-            with patch("api.services.CropCalendar") as mock_calendar:
-                mock_calendar.return_value.crop_calendar_class_factory.return_value = [fake_calendar_item]
-                with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
-                    client.post(
-                        "/submit-input",
-                        json={
-                            "user_id": "u-calendar",
-                            "coord": [36.8, 10.1],
-                            "input_level": "high",
-                            "water_supply": "rainfed",
-                        },
-                    )
-                    response = client.get("/calendar/u-calendar")
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with patch("api.services.CropCalendar") as mock_calendar:
+                    mock_calendar.return_value.crop_calendar_class_factory.return_value = [fake_calendar_item]
+                    with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                        client.post(
+                            "/submit-input",
+                            json={
+                                "user_id": "u-calendar",
+                                "coord": [36.8, 10.1],
+                                "input_level": "high",
+                                "water_supply": "rainfed",
+                            },
+                        )
+                        response = client.get("/calendar/u-calendar")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
@@ -61,57 +62,88 @@ class ApiWorkflowTests(unittest.TestCase):
 
     def test_submit_input_resolves_smu_and_fao_context(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
-            with self._build_client(
-                [
-                    {"fao_90": "Calcic Vertisols", "share": 60.0},
-                    {"fao_90": "Calcaric Cambisols", "share": 40.0},
-                ]
-            ) as client:
-                response = client.post(
-                    "/submit-input",
-                    json={
-                        "user_id": "u1",
-                        "coord": [36.8, 10.1],
-                        "input_level": "high",
-                        "water_supply": "rainfed",
-                        "answers": {},
-                    },
-                )
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client(
+                    [
+                        {"fao_90": "Calcic Vertisols", "share": 60.0},
+                        {"fao_90": "Calcaric Cambisols", "share": 40.0},
+                    ]
+                ) as client:
+                    response = client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u1",
+                            "coord": [36.8, 10.1],
+                            "input_level": "high",
+                            "water_supply": "rainfed",
+                        },
+                    )
 
         self.assertEqual(response.status_code, 200)
         session = user_sessions.get("u1")
         self.assertEqual(session["smu_id"], 31802)
         self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
+        self.assertEqual(session["ph_level"], "acidic")
+        self.assertEqual(session["texture_class"], "fine")
 
-    def test_soil_selection_is_stored_later_under_same_user_session(self):
+    def test_submit_input_preserves_existing_user_context_fields(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
-            with self._build_client(
-                [
-                    {"fao_90": "Calcic Vertisols", "share": 100.0},
-                ]
-            ) as client:
-                client.post(
-                    "/submit-input",
-                    json={
-                        "user_id": "u-soil",
-                        "coord": [36.8, 10.1],
-                        "input_level": "high",
-                        "water_supply": "rainfed",
-                    },
-                )
-                response = client.post(
-                    "/soil-selection",
-                    json={
-                        "user_id": "u-soil",
-                        "ph_level": "acidic",
-                        "texture_class": "fine",
-                    },
-                )
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                    client.post(
+                        "/onboarding",
+                        json={"user_id": "u-onboard", "lab_report_exists": True},
+                    )
+                    response = client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u-onboard",
+                            "coord": [36.8, 10.1],
+                            "input_level": "high",
+                            "water_supply": "rainfed",
+                        },
+                    )
 
         self.assertEqual(response.status_code, 200)
-        session = user_sessions.get("u-soil")
-        self.assertEqual(session["ph_level"].value, "acidic")
-        self.assertEqual(session["texture_class"].value, "fine")
+        self.assertTrue(user_sessions.get("u-onboard")["lab_report_exists"])
+
+    def test_submit_input_clears_irrigation_type_for_rainfed_requests(self):
+        with patch("api.services.resolve_smu_id", return_value=31802):
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                    response = client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u-rainfed",
+                            "coord": [36.858096, 9.962084],
+                            "input_level": "low",
+                            "water_supply": "rainfed",
+                            "irrigation_type": "drip",
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(user_sessions.get("u-rainfed")["irrigation_type"])
+
+    def test_submit_input_preserves_irrigated_sprinkler_in_session(self):
+        with patch("api.services.resolve_smu_id", return_value=31802):
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                    response = client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u-sprinkler",
+                            "coord": [36.858096, 9.962084],
+                            "input_level": "low",
+                            "water_supply": "irrigated",
+                            "irrigation_type": "sprinkler",
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 200)
+        session = user_sessions.get("u-sprinkler")
+        self.assertEqual(session["water_supply"].value, "irrigated")
+        self.assertEqual(session["irrigation_type"].value, "sprinkler")
 
     def test_metadata_selections_exposes_frontend_dropdowns_and_questions(self):
         with self._build_client([]) as client:
@@ -119,14 +151,12 @@ class ApiWorkflowTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
-        units = response.json()["units"]
         self.assertIn("user_input", payload)
         self.assertIn("crop_needs", payload)
         self.assertIn("fao_decision_questions", payload)
         self.assertEqual(payload["user_input"]["input_level"][0]["value"], "low")
         self.assertEqual(payload["crop_needs"]["texture_class"][0]["value"], "fine")
         self.assertEqual(payload["fao_decision_questions"][0]["id"], "water_context")
-        self.assertEqual(units["user_input"]["input_level"], "categorical")
 
     def test_economic_suitability_endpoint_returns_revenue_metrics(self):
         with self._build_client([]) as client:
@@ -142,12 +172,10 @@ class ApiWorkflowTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
-        units = response.json()["units"]
         self.assertEqual(payload["crop_name"], "rice")
         self.assertEqual(payload["gross_revenue"], 686000.0)
         self.assertGreater(payload["net_revenue"], 0)
         self.assertLess(payload["net_revenue"], payload["gross_revenue"])
-        self.assertEqual(units["gross_revenue"], "TND/ha")
         self.assertEqual(payload["units"]["crop_cost"], "TND/ha")
         self.assertEqual(payload["units"]["farm_price"], "TND/kg")
 
@@ -224,98 +252,170 @@ class ApiWorkflowTests(unittest.TestCase):
 
     def test_fao_get_questions_returns_next_question_for_multiple_candidates(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
-            with self._build_client(
-                [
-                    {"fao_90": "Calcic Vertisols", "share": 40.0},
-                    {"fao_90": "Calcaric Cambisols", "share": 30.0},
-                    {"fao_90": "Calcic Luvisols", "share": 20.0},
-                    {"fao_90": "Calcaric Fluvisols", "share": 10.0},
-                ]
-            ) as client:
-                client.post(
-                    "/submit-input",
-                    json={
-                        "user_id": "u2",
-                        "coord": [36.8, 10.1],
-                        "input_level": "high",
-                        "water_supply": "rainfed",
-                    },
-                )
-                response = client.get("/fao-decision/get-questions/u2")
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client(
+                    [
+                        {"fao_90": "Calcic Vertisols", "share": 40.0},
+                        {"fao_90": "Calcaric Cambisols", "share": 30.0},
+                        {"fao_90": "Calcic Luvisols", "share": 20.0},
+                        {"fao_90": "Calcaric Fluvisols", "share": 10.0},
+                    ]
+                ) as client:
+                    client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u2",
+                            "coord": [36.8, 10.1],
+                            "input_level": "high",
+                            "water_supply": "rainfed",
+                        },
+                    )
+                    response = client.get("/fao-decision/get-questions/u2")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
-        self.assertEqual(payload["status"], "question")
-        self.assertEqual(payload["question"]["id"], "water_context")
+        self.assertEqual(payload["smu_id"], 31802)
+        self.assertEqual(payload["questions"][0]["id"], "water_context")
+        self.assertGreaterEqual(len(payload["questions"]), 1)
         session = user_sessions.get("u2")
         self.assertEqual(session["smu_id"], 31802)
-        self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
         self.assertEqual(len(session["fao_90_candidates"]), 4)
 
-    def test_fao_get_questions_completes_for_single_candidate(self):
+    def test_fao_get_questions_returns_candidates_and_no_questions_for_single_class(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
-            with self._build_client(
-                [
-                    {"fao_90": "Calcic Vertisols", "share": 100.0},
-                ]
-            ) as client:
-                client.post(
-                    "/submit-input",
-                    json={
-                        "user_id": "u3",
-                        "coord": [36.8, 10.1],
-                        "input_level": "high",
-                        "water_supply": "rainfed",
-                    },
-                )
-                response = client.get("/fao-decision/get-questions/u3")
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client(
+                    [
+                        {"fao_90": "Calcic Vertisols", "share": 100.0},
+                    ]
+                ) as client:
+                    client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u3",
+                            "coord": [36.8, 10.1],
+                            "input_level": "high",
+                            "water_supply": "rainfed",
+                        },
+                    )
+                    response = client.get("/fao-decision/get-questions/u3")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
-        self.assertEqual(payload["status"], "complete")
-        self.assertEqual(payload["selected_fao_90"], "Calcic Vertisols")
+        self.assertEqual(payload["candidates"][0]["fao_90"], "Calcic Vertisols")
+        self.assertEqual(payload["questions"], [])
         session = user_sessions.get("u3")
-        self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
+        self.assertEqual(session["smu_id"], 31802)
 
     def test_fao_post_answers_persists_selected_class_after_answers(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
-            with self._build_client(
-                [
-                    {"fao_90": "Calcic Vertisols", "share": 40.0},
-                    {"fao_90": "Calcaric Cambisols", "share": 30.0},
-                    {"fao_90": "Calcic Luvisols", "share": 20.0},
-                    {"fao_90": "Calcaric Fluvisols", "share": 10.0},
-                ]
-            ) as client:
-                client.post(
-                    "/submit-input",
-                    json={
-                        "user_id": "u4",
-                        "coord": [36.8, 10.1],
-                        "input_level": "high",
-                        "water_supply": "rainfed",
-                    },
-                )
-                response = client.post(
-                    "/fao-decision/post-answers",
-                    json={
-                        "user_id": "u4",
-                        "answers": {
-                            "water_context": "Dry land, no standing water",
-                            "sodic_check": "No, it digs normally",
-                            "arid_signature": "White chalky bits - lime",
-                            "profile_development": "Heavy clay that cracks open in summer",
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client(
+                    [
+                        {"fao_90": "Calcic Vertisols", "share": 40.0},
+                        {"fao_90": "Calcaric Cambisols", "share": 30.0},
+                        {"fao_90": "Calcic Luvisols", "share": 20.0},
+                        {"fao_90": "Calcaric Fluvisols", "share": 10.0},
+                    ]
+                ) as client:
+                    client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u4",
+                            "coord": [36.8, 10.1],
+                            "input_level": "high",
+                            "water_supply": "rainfed",
                         },
-                    },
-                )
+                    )
+                    response = client.post(
+                        "/fao-decision/post-answers",
+                        json={
+                            "user_id": "u4",
+                            "answers": {
+                                "water_context": "Dry land, no standing water",
+                                "sodic_check": "No, it digs normally",
+                                "arid_signature": "White chalky bits - lime",
+                                "profile_development": "Heavy clay that cracks open in summer",
+                            },
+                        },
+                    )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
         self.assertEqual(payload["status"], "complete")
         self.assertEqual(payload["selected_fao_90"], "Calcic Vertisols")
+        self.assertEqual(payload["selected_fao_class"], "Calcic Vertisols")
         session = user_sessions.get("u4")
         self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
         self.assertEqual(session["answers"]["profile_development"], "Heavy clay that cracks open in summer")
+
+    def test_fao_post_answers_maps_question_number_keys_to_internal_ids(self):
+        with patch("api.services.resolve_smu_id", return_value=31835):
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client(
+                    [
+                        {"fao_90": "GLe", "share": 55.0},
+                        {"fao_90": "VRk", "share": 25.0},
+                        {"fao_90": "FLe", "share": 20.0},
+                    ]
+                ) as client:
+                    client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u5",
+                            "coord": [36.8, 10.1],
+                            "input_level": "high",
+                            "water_supply": "rainfed",
+                        },
+                    )
+                    questions_response = client.get("/fao-decision/get-questions/u5")
+                    response = client.post(
+                        "/fao-decision/post-answers",
+                        json={
+                            "user_id": "u5",
+                            "answers": {
+                                "question1": "Gets flooded by a river or wadi",
+                            },
+                        },
+                    )
+
+        self.assertEqual(questions_response.status_code, 200)
+        self.assertEqual(questions_response.json()["data"]["questions"][0]["id"], "water_context")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(user_sessions.get("u5")["answers"]["water_context"], "Gets flooded by a river or wadi")
+
+    def test_fao_post_answers_maps_question_text_keys_to_internal_ids(self):
+        with patch("api.services.resolve_smu_id", return_value=31835):
+            with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
+                with self._build_client(
+                    [
+                        {"fao_90": "GLe", "share": 55.0},
+                        {"fao_90": "VRk", "share": 25.0},
+                        {"fao_90": "FLe", "share": 20.0},
+                    ]
+                ) as client:
+                    client.post(
+                        "/submit-input",
+                        json={
+                            "user_id": "u6",
+                            "coord": [36.8, 10.1],
+                            "input_level": "high",
+                            "water_supply": "rainfed",
+                        },
+                    )
+                    client.get("/fao-decision/get-questions/u6")
+                    response = client.post(
+                        "/fao-decision/post-answers",
+                        json={
+                            "user_id": "u6",
+                            "answers": {
+                                "What's the water situation here?": "Wet most of the year, marshy or boggy",
+                            },
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(user_sessions.get("u6")["answers"]["water_context"], "Wet most of the year, marshy or boggy")
 
 
 if __name__ == "__main__":

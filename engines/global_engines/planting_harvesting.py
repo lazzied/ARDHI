@@ -7,7 +7,7 @@ import logging
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection
 from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
-from engines.OCR_processing.models import InputLevel, WaterSupply
+from engines.OCR_processing.models import InputLevel, IrrigationType, WaterSupply
 from engines.global_engines.models import CropCalendarClass
 from raster.tiff_operations import read_tiff_pixel
 
@@ -16,11 +16,19 @@ logger = logging.getLogger(__name__)
 
 
 class CropCalendar:
-    def __init__(self, repo: ArdhiRepository, coord: tuple, input_level: InputLevel, water_supply: WaterSupply):
+    def __init__(
+        self,
+        repo: ArdhiRepository,
+        coord: tuple,
+        input_level: InputLevel,
+        water_supply: WaterSupply,
+        irrigation_type: IrrigationType | None = None,
+    ):
         self.repo = repo
         self.coord = coord
         self.input_level = input_level
         self.water_supply = water_supply
+        self.irrigation_type = irrigation_type
         self.crop_names = self.build_crop_names()
 
     @staticmethod
@@ -38,11 +46,23 @@ class CropCalendar:
         return names
 
     def get_optimum_planting_day(self, crop_code: str) -> int:
-        tiff_file_path = self.repo.calendar_query_tiff_path(crop_code, "RES02-CBD", self.water_supply, self.input_level)
+        tiff_file_path = self.repo.calendar_query_tiff_path(
+            crop_code,
+            "RES02-CBD",
+            self.water_supply,
+            self.input_level,
+            self.irrigation_type,
+        )
         return read_tiff_pixel(tiff_file_path, self.coord)
 
     def get_growth_days(self, crop_code: str) -> int:
-        tiff_file_path = self.repo.calendar_query_tiff_path(crop_code, "RES02-CYL", self.water_supply, self.input_level)
+        tiff_file_path = self.repo.calendar_query_tiff_path(
+            crop_code,
+            "RES02-CYL",
+            self.water_supply,
+            self.input_level,
+            self.irrigation_type,
+        )
         return read_tiff_pixel(tiff_file_path, self.coord)
 
     def build_calendar_class(self, crop_code: str) -> CropCalendarClass | None:

@@ -5,7 +5,7 @@ from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection, get_hwsd_connection
 from ardhi.db.hwsd import HwsdRepository
 from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
-from engines.OCR_processing.models import InputLevel, ScenarioConfig, WaterSupply
+from engines.OCR_processing.models import InputLevel, IrrigationType, ScenarioConfig, WaterSupply
 from engines.OCR_processing.yield_service.models import YIELD_LAYERS
 from engines.OCR_processing.yield_service.yield_calc import YieldCalcOrchestrator
 from engines.global_engines.yield_service.debug_print_yield import print_ranking_summary
@@ -23,12 +23,14 @@ class ReportCropYield:
         ardhi_repo: ArdhiRepository,
         input_level: InputLevel,
         water_supply: WaterSupply,
+        irrigation_type: IrrigationType | None,
         coord: tuple,
     ):
         self.ardhi_repo = ardhi_repo
         self.hwsd_repo = hwsd_repo
         self.input_level = input_level
         self.water_supply = water_supply
+        self.irrigation_type = irrigation_type
         self.coord = coord
 
         self.crop_names = self.build_crop_names()
@@ -50,7 +52,7 @@ class ReportCropYield:
         return names
 
     def scenario_config_factory(self, crop_name: str) -> ScenarioConfig:
-        return ScenarioConfig(crop_name, self.input_level, self.water_supply)
+        return ScenarioConfig(crop_name, self.input_level, self.water_supply, self.irrigation_type)
 
     def build_tiff_dict(self) -> None:
         for key, map_code in YIELD_LAYERS.items():
@@ -115,6 +117,7 @@ if __name__ == "__main__":
         ardhi_repo,
         InputLevel.HIGH,
         WaterSupply.RAINFED,
+        None,
         (37.024050, 9.435166),
     )
     print_ranking_summary(crop_yield.build_ranking_class())

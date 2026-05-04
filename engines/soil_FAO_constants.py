@@ -6,11 +6,13 @@
 CATEGORY_OF = {
     # Wet (gleyed in place)
     "Eutric Gleysols": "wet", "Calcic Gleysols": "wet",
+    "GLe": "wet", "GLk": "wet",
 
     # Alluvial (river-deposited; Salic kept here taxonomically but
     # also routed through the "salty flat" answer in Q1)
     "Calcaric Fluvisols": "alluvial", "Eutric Fluvisols": "alluvial",
     "Salic Fluvisols": "alluvial",
+    "FLe": "alluvial", "FLk": "alluvial", "FLt": "alluvial",
 
     # Saline (Solonchaks)
     "Solonchaks": "saline",
@@ -52,6 +54,7 @@ CATEGORY_OF = {
     "Vertisols": "clay_cracking",
     "Eutric Vertisols": "clay_cracking",
     "Calcic Vertisols": "clay_cracking",
+    "VRe": "clay_cracking", "VRk": "clay_cracking",
 
     # Bleached clay (Planosols)
     "Dystric Planosols": "clay_bleached",
@@ -66,11 +69,13 @@ CATEGORY_OF = {
     "Chromic Luvisols": "reddish_developed",
     "Haplic Lixisols": "reddish_developed",
     "Haplic Alisols": "reddish_developed",
+    "LVk": "reddish_developed", "LVx": "reddish_developed", "LVg": "reddish_developed",
 
     # Brown moderate (Cambisols)
     "Calcaric Cambisols": "moderate", "Eutric Cambisols": "moderate",
     "Gleyic Cambisols": "moderate", "Humic Cambisols": "moderate",
     "Vertic Cambisols": "moderate", "Chromic Cambisols": "moderate",
+    "CMk": "moderate", "CMe": "moderate", "CMg": "moderate", "CMx": "moderate",
 
     # Podzol (rare, mountainous Khroumirie)
     "Haplic Podzols": "podzol",

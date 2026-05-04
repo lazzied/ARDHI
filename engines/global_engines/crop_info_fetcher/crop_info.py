@@ -38,5 +38,4 @@ class CropInfo:
             self.print_crop(crop_data)
 
 
-if __name__ == "__main__":
-    EcoCropPrinter().print_all()
+

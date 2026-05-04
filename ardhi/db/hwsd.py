@@ -32,6 +32,18 @@ class HwsdRepository:
         )
         return self.cursor.fetchall()
 
+    def _fetch_layer_fao_rows(self, smu_id: int):
+        self.cursor.execute(
+            """
+            SELECT DISTINCT FAO90, SHARE
+            FROM HWSD2_LAYERS
+            WHERE HWSD2_SMU_ID = ?
+            ORDER BY SHARE DESC, FAO90 ASC
+            """,
+            (smu_id,),
+        )
+        return self.cursor.fetchall()
+
     def get_layer_attribute(self, smu_id, attribute: str, fao_90_class: str, layer: str = "D1"):
         row = self._fetch_layer_row(smu_id, fao_90_class, layer, [attribute])
         return row[attribute] if row else None
@@ -70,7 +82,7 @@ class HwsdRepository:
         return row["FAO90"].strip() if row else None
 
     def get_fao_90_candidates(self, smu_id: int) -> list[dict]:
-        rows = self._fetch_fao_rows(smu_id)
+        rows = self._fetch_layer_fao_rows(smu_id)
         return [
             {
                 "fao_90": row["FAO90"].strip(),

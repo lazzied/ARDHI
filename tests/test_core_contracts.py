@@ -6,7 +6,7 @@ from ardhi.db.hwsd import HwsdRepository
 from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, InputLevel, WaterSupply, pH_level
 from engines.global_engines.suitability_service.models import CropSuitabilityScore, RankingSuitability
 from engines.global_engines.yield_service.models import CropYieldScore, RankingYield
-from engines.soil_FAO_decision import classify_soil_dynamic, get_next_question
+from engines.soil_FAO_decision import classify_soil_dynamic, get_next_question, get_relevant_questions
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import augmented_layers_group_to_dict
 from engines.soil_properties_builder.report_augmentation.processing import ReportOperations
 import sqlite3
@@ -66,12 +66,43 @@ class SoilPropertyContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "complete")
         self.assertEqual(result["selected_soil"], "Calcic Vertisols")
 
+    def test_fao_question_list_filters_to_relevant_questions(self):
+        smu_input = {
+            "Calcic Vertisols": 0.40,
+            "Calcaric Cambisols": 0.30,
+            "Calcic Luvisols": 0.20,
+            "Calcaric Fluvisols": 0.10,
+        }
+
+        questions = get_relevant_questions(smu_input)
+
+        self.assertEqual([question["id"] for question in questions], [
+            "water_context",
+            "profile_development",
+            "developed_soil_character",
+        ])
+
+    def test_fao_question_list_handles_short_fao_codes(self):
+        smu_input = {
+            "GLe": 0.55,
+            "VRk": 0.25,
+            "FLe": 0.20,
+        }
+
+        questions = get_relevant_questions(smu_input)
+
+        self.assertEqual([question["id"] for question in questions], [
+            "water_context",
+            "profile_development",
+        ])
+
     def test_hwsd_repo_returns_fao_candidates_sorted_by_share(self):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
-        conn.execute("CREATE TABLE HWSD2_SMU (HWSD2_SMU_ID INTEGER, FAO90 TEXT, SHARE REAL)")
-        conn.execute("INSERT INTO HWSD2_SMU VALUES (1, 'Class B', 40)")
-        conn.execute("INSERT INTO HWSD2_SMU VALUES (1, 'Class A', 60)")
+        conn.execute("CREATE TABLE HWSD2_LAYERS (HWSD2_SMU_ID INTEGER, FAO90 TEXT, SHARE REAL)")
+        conn.execute("INSERT INTO HWSD2_LAYERS VALUES (1, 'Class B', 40)")
+        conn.execute("INSERT INTO HWSD2_LAYERS VALUES (1, 'Class A', 60)")
+        conn.execute("INSERT INTO HWSD2_LAYERS VALUES (1, 'Class A', 60)")
         repo = HwsdRepository(conn)
 
         candidates = repo.get_fao_90_candidates(1)
@@ -121,6 +152,42 @@ class SoilPropertyContractTests(unittest.TestCase):
 
         self.assertEqual(default_path, "rainfed-default.tif")
         self.assertEqual(drip_path, "drip-only.tif")
+        conn.close()
+
+    def test_ardhi_repo_normalizes_sprinkler_queries_to_rainfed_paths(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE tiff_files (
+                crop_code TEXT,
+                map_code TEXT,
+                input_level TEXT,
+                water_supply TEXT,
+                irrigation_type TEXT,
+                file_path TEXT,
+                sq_factor TEXT,
+                management TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO tiff_files (crop_code, map_code, input_level, water_supply, irrigation_type, file_path)
+            VALUES ('WHE', 'RES05-SXX30AS', 'low', 'rainfed', NULL, 'rainfed-sprinkler-shared.tif')
+            """
+        )
+        repo = ArdhiRepository(conn)
+
+        sprinkler_path = repo.query_tiff_path(
+            "low",
+            "irrigated",
+            "WHE",
+            "RES05-SXX30AS",
+            "sprinkler",
+        )
+
+        self.assertEqual(sprinkler_path, "rainfed-sprinkler-shared.tif")
         conn.close()
 
     def test_ranking_yield_exposes_raw_scores_without_backend_sort_wrapper(self):
