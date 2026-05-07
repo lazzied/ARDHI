@@ -1,5 +1,7 @@
 """Report-based crop yield scorer that returns one yield record per crop."""
 import logging
+import logging.handlers
+from pathlib import Path
 
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection, get_hwsd_connection
@@ -14,6 +16,19 @@ from raster.tiff_operations import read_tiff_pixel
 
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Debug file logger
+# ---------------------------------------------------------------------------
+_debug_logger = logging.getLogger("report_crop_yield.debug")
+_debug_logger.setLevel(logging.DEBUG)
+_debug_logger.propagate = False
+
+_log_path = Path(__file__).parent / "report_crop_yield_debug.log"
+_fh = logging.FileHandler(_log_path, mode="w", encoding="utf-8")
+_fh.setLevel(logging.DEBUG)
+_fh.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S"))
+_debug_logger.addHandler(_fh)
 
 
 class ReportCropYield:
@@ -36,6 +51,13 @@ class ReportCropYield:
         self.crop_names = self.build_crop_names()
         self.tiff_dict = {}
         self.build_tiff_dict()
+
+        _debug_logger.debug(
+            "ReportCropYield init | coord=%s  input_level=%s  water_supply=%s  irrigation=%s",
+            coord, input_level, water_supply, irrigation_type,
+        )
+        _debug_logger.debug("Crops loaded: %d  → %s", len(self.crop_names), list(self.crop_names.values()))
+        _debug_logger.debug("Tiff dict keys: %s", list(self.tiff_dict.keys()))
 
     @staticmethod
     def build_crop_names() -> dict:
@@ -60,6 +82,12 @@ class ReportCropYield:
             self.tiff_dict[key.lower()] = paths
 
     def build_crop_actual_yield(self, scenario: ScenarioConfig):
+        # --- DEBUG SKIP ---
+        if scenario.crop_name.lower() == "gram":
+            _debug_logger.debug("Skipping gram before orchestrator init (known missing SPH_val)")
+            raise ValueError("gram skipped — known missing SPH_val in edaphic table")
+        # --- END DEBUG SKIP ---
+        
         orchestrator = YieldCalcOrchestrator(
             coord=self.coord,
             scenario=scenario,
@@ -71,10 +99,15 @@ class ReportCropYield:
     def build_crop_score(self, calculated_yield, crop_code: str) -> CropYieldScore | None:
         yxx_path = self.tiff_dict["yxx"].get(crop_code)
         if not yxx_path:
+            _debug_logger.debug("build_crop_score | %s — no yxx path, skipping", crop_code)
             logger.debug("Skipping %s due to missing yxx raster path", crop_code)
             return None
 
         potential_regional_yield = read_tiff_pixel(yxx_path.strip(), self.coord)
+        _debug_logger.debug(
+            "build_crop_score | %-20s  calculated=%s  potential_regional=%s",
+            crop_code, calculated_yield, potential_regional_yield,
+        )
         return CropYieldScore(
             crop_code=crop_code,
             crop_name=self.crop_names[crop_code],
@@ -86,15 +119,23 @@ class ReportCropYield:
 
     def build_ranking_class(self) -> RankingYield:
         crop_scores = []
+        _debug_logger.debug("--- build_ranking_class START (%d crops) ---", len(self.crop_names))
+
         for crop_code, crop_name in self.crop_names.items():
+            if crop_name.lower() == "gram":
+                _debug_logger.debug("Skipping gram (known missing SPH_val)")
+                continue
             scenario = self.scenario_config_factory(crop_name.lower())
 
             try:
                 calculated_yield = self.build_crop_actual_yield(scenario)
+                _debug_logger.debug("yield OK  | %-20s  yield=%s", crop_name, calculated_yield)
             except ValueError as exc:
+                _debug_logger.debug("yield SKIP (ValueError)  | %-20s  %s", crop_name, exc)
                 logger.warning("Skipping %s (%s): %s", crop_name, crop_code, exc)
                 continue
             except FileNotFoundError as exc:
+                _debug_logger.debug("yield SKIP (FileNotFoundError)  | %-20s  %s", crop_name, exc)
                 logger.warning("Skipping %s (%s) due to missing DB tiff path: %s", crop_name, crop_code, exc)
                 continue
 
@@ -102,6 +143,7 @@ class ReportCropYield:
             if score is not None:
                 crop_scores.append(score)
 
+        _debug_logger.debug("--- build_ranking_class END | %d scores collected ---", len(crop_scores))
         return RankingYield(scores=crop_scores)
 
 
@@ -115,7 +157,7 @@ if __name__ == "__main__":
     crop_yield = ReportCropYield(
         hwsd_repo,
         ardhi_repo,
-        InputLevel.HIGH,
+        InputLevel.LOW,
         WaterSupply.RAINFED,
         None,
         (37.024050, 9.435166),

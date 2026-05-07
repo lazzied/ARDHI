@@ -1,6 +1,6 @@
 """Core report-augmentation logic that mixes lab report values with HWSD-derived properties."""
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Union
 from ardhi.db.connections import close_connection, get_hwsd_connection
 from ardhi.db.hwsd import HwsdRepository
 from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, pH_level
@@ -9,21 +9,34 @@ from engines.soil_properties_builder.output.output import Output
 from engines.soil_properties_builder.report_augmentation.constants import CLASS_ATTRIBUTES, HWSD_COLUMNS,  NUM_ATTRIBUTES, REPORT_MAP, SOIL_DEPTH
 
 
-class ReportOperations():
-    def __init__(self, report: str | list[dict] | dict):
-        # report can be a json file path or already-parsed attribute/value data.
-        if isinstance(report, str):
-            with open(report, encoding="utf-8") as f:
-                self.data = json.load(f)
-        elif isinstance(report, dict):
-            self.data = report.get("lab_report", report.get("data", []))
-        else:
-            self.data = report
+class ReportOperations:
+    def __init__(self, report: str):
+        """
+        Loads the report and transforms the list into a dictionary 
+        indexed by attribute name for O(1) lookup speed.
+        """
+        with open(report, encoding="utf-8") as f:
+            # Extract the list from the JSON
+            raw_list = json.load(f)
+            
+            # Handle cases where the JSON root is the list OR contains a 'lab_report' key
+            report_list = raw_list if isinstance(raw_list, list) else raw_list.get("lab_report", [])
+            
+            # Fix the "Setter": Map attributes to their full dictionary data
+            self.data = {item["attribute"]: item for item in report_list}
+            
+        print(f"Loaded {len(self.data)} attributes.")
+
+    def get_attribute_value(self, attribute_name: str) -> Union[float, int, None]:
+        """
+        Retrieves the value of a specific attribute.
+        """
+        # Efficient O(1) lookup
+        attribute_data = self.data.get(attribute_name)
         
-    def get_attribute_value(self, attribute: str):
-        for item in self.data:
-            if item["attribute"] == attribute:
-                return item["value"]
+        if attribute_data:
+            return attribute_data.get("value")
+            
         return None
     
     def get_report_ph_class(self)-> pH_level:

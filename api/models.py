@@ -1,5 +1,5 @@
 """Request and response models used by the public API."""
-from typing import Any, Optional
+from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -21,25 +21,50 @@ class OnboardingChoice(BaseModel):
     }
 
 
+
+
 class LabReport(BaseModel):
     user_id: str = Field(description="Frontend-generated unique user/session identifier.")
-    lab_report: dict | list[dict[str, Any]] = Field(
+    lab_report: Union[dict, List[dict[str, Any]]] = Field(
         description="Structured lab report payload captured by the frontend or OCR flow."
     )
 
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "user_id": "sim1",
-                "lab_report": [
-                    {
-                        "attribute": "pH",
-                        "iso_method": "NF EN ISO 10390 (2022)",
-                        "unit": "---",
-                        "value": 5,
-                    }
-                ],
-            }
+            "examples": [
+                {
+                    "user_id": "sim1",
+                    "lab_report": [
+                        { "attribute": "pH", "iso_method": "NF EN ISO 10390 (2022)", "unit": "---", "value": 5 },
+                        { "attribute": "Conductivité", "iso_method": "ISO 11265 (2025)", "unit": "mS/Cm", "value": 0.9 },
+                        { "attribute": "Salinité", "iso_method": "ISO 11265 (2025)", "unit": "%", "value": 0.15 },
+                        { "attribute": "Humidité", "iso_method": "MA ISO 11465 (2025)", "unit": "%", "value": 18.5 },
+                        { "attribute": "Matière sèche", "iso_method": "MA ISO 11465 (2025)", "unit": "%", "value": 81.5 },
+                        { "attribute": "Matière Organique", "iso_method": "RODIER (2009)", "unit": "%", "value": 2.4 },
+                        { "attribute": "Azote total", "iso_method": "ISO 13878 (2020)", "unit": "%", "value": 0.18 },
+                        { "attribute": "Rapport C/N", "iso_method": "RODIER (2009)", "unit": "---", "value": 11.5 },
+                        { "attribute": "Souffre", "iso_method": "ISO 15178 (2000)", "unit": "%", "value": 0.02 },
+                        { "attribute": "Taux de carbone", "iso_method": "ISO 10694 (2020)", "unit": "%", "value": 1.4 },
+                        { "attribute": "Carbonates de Calcium", "iso_method": "ISO 10693 (2021)", "unit": "%", "value": 8.0 },
+                        { "attribute": "Phosphore", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 0.6 },
+                        { "attribute": "Potassium", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 1.8 },
+                        { "attribute": "Magnésium", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 0.9 },
+                        { "attribute": "Calcium", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 6.5 },
+                        { "attribute": "Manganèse", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 0.08 },
+                        { "attribute": "Bore", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 0.01 },
+                        { "attribute": "Cuivre", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 0.02 },
+                        { "attribute": "Fer", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 2.5 },
+                        { "attribute": "Zinc", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 0.03 },
+                        { "attribute": "Molybdène", "iso_method": "ISO 11047 (2023)", "unit": "g/Kg MS", "value": 0.002 },
+                        { "attribute": "Calcium échangeable", "iso_method": "ISO 11260 (2018)", "unit": "g/Kg MS", "value": 5.8 },
+                        { "attribute": "Magnésium échangeable", "iso_method": "ISO 11260 (2018)", "unit": "g/Kg MS", "value": 1.1 },
+                        { "attribute": "Potassium échangeable", "iso_method": "ISO 11260 (2018)", "unit": "g/Kg MS", "value": 0.35 },
+                        { "attribute": "Phosphore échangeable", "iso_method": "ISO 11260 (2018)", "unit": "g/Kg MS", "value": 0.15 },
+                        { "attribute": "Sodium échangeable", "iso_method": "ISO 11260 (2018)", "unit": "g/Kg MS", "value": 0.12 },
+                        { "attribute": "Calcaire actif", "iso_method": "NF X 31-106 (2002)", "unit": "%", "value": 4.5 }
+                    ]
+                }
+            ]
         }
     }
 
@@ -91,7 +116,11 @@ class UserInput(BaseModel):
         description="Whether the user selected the report-based workflow and expects a lab report payload from the external service.",
     )
     lab_report_exists: bool = Field(default=False, description="Whether a lab report is available for this user.")
-    lab_report: Optional[dict] = Field(default=None, description="Optional stored lab report payload.")
+    
+    lab_report: Optional[Union[dict, List[dict[str, Any]]]] = Field(
+    default=None, 
+    description="Optional stored lab report payload."
+)
     ph_level: Optional[pH_level] = Field(
         default=None,
         description="Optional soil pH class selection stored in session for crop-needs and related flows.",

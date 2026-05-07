@@ -68,15 +68,6 @@ def selection_catalog_units() -> dict:
             "water_supply": "categorical",
             "irrigation_type": "categorical",
         },
-        "crop_needs": {
-            "ph_level": "categorical",
-            "texture_class": "categorical",
-        },
-        "fao_decision_questions": {
-            "id": "identifier",
-            "question": "text",
-            "options": "categorical options",
-        },
     }
 
 
@@ -249,18 +240,6 @@ def build_selection_catalog() -> dict:
             "water_supply": _enum_options(WaterSupply),
             "irrigation_type": _enum_options(IrrigationType),
         },
-        "crop_needs": {
-            "ph_level": _enum_options(pH_level),
-            "texture_class": _enum_options(Texture),
-        },
-        "fao_decision_questions": [
-            {
-                "id": question.id,
-                "question": question.question,
-                "options": list(question.options),
-            }
-            for question in QUESTION_FLOW
-        ],
     }
 
 
@@ -400,6 +379,7 @@ def store_user_input(data: SubmitInputRequest | UserInput, repos: Repositories) 
         input_level=data.input_level,
         water_supply=data.water_supply,
         irrigation_type=data.irrigation_type,
+        
         answers=session.get("answers", {}),
         needs_report=session.get("needs_report", False),
         lab_report_exists=session.get("lab_report_exists", False),

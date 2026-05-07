@@ -20,21 +20,12 @@ from typing import Dict, Iterator, List
 
 import pandas as pd
 
-from engines.edaphic_crop_reqs.constants import (
-    ATTR_ABBREV_MAP, CROPS_RAINFED_SPRINKLER,
-)
-from engines.edaphic_crop_reqs.models import (
-    AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock,
-)
-from engines.edaphic_crop_reqs.utils_functions import (
-    attribute_pairs_to_df,
-    generate_sq_df,
-    normalize_categorical_label,
-    parse_input_levels,
-    parse_sq_labels,
-    validate_and_get_row_idx,
-    write_sq_df_to_csv,
-)
+from data_scripts.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
+from data_scripts.edaphic_crop_reqs.models import AttributePair, RatingCurve, SoilCharacteristicsBlock
+from data_scripts.edaphic_crop_reqs.utils_functions import attribute_pairs_to_df, generate_sq_df, normalize_categorical_label, parse_input_levels, parse_sq_labels, validate_and_get_row_idx, write_sq_df_to_csv
+from engines.OCR_processing.models import InputLevel
+
+
 
 INPUT_LEVEL_ROW = 2
 SQ_ROW          = 3

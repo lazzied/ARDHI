@@ -2,13 +2,15 @@
 import difflib
 import logging
 import numpy as np
+import pandas as pd
+from pathlib import Path
 from pyaez import SoilConstraints
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import close_connection, get_ardhi_connection, get_hwsd_connection
 from ardhi.db.hwsd import HwsdRepository
 from engines.OCR_processing.models import (
-    DRIP_IRRIGATED_CROPS, GRAVITY_IRRIGATED_CROPS, INPUT_LEVEL_TO_PYAEZ, 
-    RAINFED_SPRINKLER_CROPS, InputLevel, IrrigationType, ScenarioConfig, SiteContext, 
+    DRIP_IRRIGATED_CROPS, GRAVITY_IRRIGATED_CROPS, INPUT_LEVEL_TO_PYAEZ,
+    RAINFED_SPRINKLER_CROPS, InputLevel, IrrigationType, ScenarioConfig, SiteContext,
     Texture, WaterSupply, WaterSupplyIndex, get_crop_code, pH_level
 )
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import HWSDPropGenerator
@@ -16,6 +18,34 @@ from engines.soil_properties_builder.report_augmentation.processing import Repor
 from raster.tiff_operations import get_smu_id_value, read_tiff_pixel
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Debug file logger
+# ---------------------------------------------------------------------------
+_debug_logger = logging.getLogger("yield_calc.debug")
+_debug_logger.setLevel(logging.DEBUG)
+_debug_logger.propagate = False
+
+_log_path = Path(__file__).parent / "yield_calc_debug.log"
+_fh = logging.FileHandler(_log_path, mode="w", encoding="utf-8")
+_fh.setLevel(logging.DEBUG)
+_fh.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S"))
+_debug_logger.addHandler(_fh)
+
+def _inspect_edaphic_file(path, label: str) -> None:
+    try:
+        xl = pd.ExcelFile(path)
+        _debug_logger.debug("%s | file: %s | sheets: %s", label, path, xl.sheet_names)
+        for sheet in xl.sheet_names:
+            df = pd.read_excel(path, sheet_name=sheet, header=None)
+            col0 = df[0].tolist()
+            has_sph = any("SPH_val" in str(v) for v in col0)
+            _debug_logger.debug(
+                "  %-6s  rows=%d  col0=%s  has_SPH_val=%s",
+                sheet, len(df), col0, has_sph,
+            )
+    except Exception as exc:
+        _debug_logger.debug("Could not inspect %s (%s): %s", label, path, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -94,15 +124,12 @@ class YieldRepository:
             self.scenario.crop_name, self.scenario.water_supply, self.scenario.irrigation_type
         )
 
-
-
-        rainfed_path = self.ardhi_repo.query_edaphic_path(self.scenario,self.site.ph_level,self.site.texture_class)
-        
+        rainfed_path = self.ardhi_repo.query_edaphic_path(self.scenario, self.site.ph_level, self.site.texture_class)
 
         if self.scenario.water_supply == WaterSupply.RAINFED:
             return rainfed_path, rainfed_path
 
-        irrigated_path = self.ardhi_repo.query_edaphic_path(self.scenario,self.site.ph_level,self.site.texture_class)
+        irrigated_path = self.ardhi_repo.query_edaphic_path(self.scenario, self.site.ph_level, self.site.texture_class)
         return rainfed_path, irrigated_path
 
 # ---------------------------------------------------------------------------
@@ -113,58 +140,89 @@ class YieldCalculator:
     def __init__(self, yield_repo: YieldRepository, soil_prop_path: str):
         self.repo = yield_repo
         self.soil_prop_path = soil_prop_path
-        
-        
 
     def calculate_fc4_yield(self, smu_id: int, yield_in: float) -> float:
         paths = self.repo.get_edaphic_paths()
 
+        # --- DEBUG ---
+        _debug_logger.debug(
+            "calculate_fc4_yield | crop=%-20s  smu_id=%s  yield_in=%s",
+            self.repo.scenario.crop_name, smu_id, yield_in,
+        )
+        _debug_logger.debug("  edaphic path[0]: %s", paths[0])
+        _debug_logger.debug("  edaphic path[1]: %s", paths[1])
+        _debug_logger.debug("  soil_prop_path:  %s", self.soil_prop_path)
+        _inspect_edaphic_file(paths[0], "edaphic[0]")
+        if paths[1] != paths[0]:
+            _inspect_edaphic_file(paths[1], "edaphic[1]")
+        # --- END DEBUG ---
+
         soil_constraints = SoilConstraints.SoilConstraints()
+
+        # --- DEBUG ---
+        _debug_logger.debug("  >> importSoilReductionSheet ...")
+        # --- END DEBUG ---
         soil_constraints.importSoilReductionSheet(paths[0], paths[1])
 
         ws_idx = WaterSupplyIndex[self.repo.scenario.water_supply.name].value
         il_idx = INPUT_LEVEL_TO_PYAEZ[self.repo.scenario.input_level]
 
+        # --- DEBUG ---
+        _debug_logger.debug("  >> calculateSoilQualities | ws_idx=%s  soil_prop=%s", ws_idx, self.soil_prop_path)
+        # --- END DEBUG ---
         soil_constraints.calculateSoilQualities(ws_idx, self.soil_prop_path, self.soil_prop_path)
+
+        # --- DEBUG ---
+        _debug_logger.debug("  >> calculateSoilRatings | il_idx=%s", il_idx)
+        # --- END DEBUG ---
         soil_constraints.calculateSoilRatings(il_idx)
 
+        # --- DEBUG ---
+        _debug_logger.debug("  >> applySoilConstraints | smu_id=%s  yield_in=%s", smu_id, yield_in)
+        # --- END DEBUG ---
         yield_out = soil_constraints.applySoilConstraints(
-            np.array([[smu_id]], dtype=np.int64), 
+            np.array([[smu_id]], dtype=np.int64),
             np.array([[yield_in]], dtype=float)
         )
-        return float(yield_out[0, 0])
-    
+
+        result = float(yield_out[0, 0])
+        # --- DEBUG ---
+        _debug_logger.debug("  >> fc4 result: %s", result)
+        # --- END DEBUG ---
+        return result
+
     def get_soil_qualities(self):
         paths = self.repo.get_edaphic_paths()
-        
+
         soil_constraints = SoilConstraints.SoilConstraints()
         soil_constraints.importSoilReductionSheet(paths[0], paths[1])
 
         ws_idx = WaterSupplyIndex[self.repo.scenario.water_supply.name].value
 
         soil_constraints.calculateSoilQualities(ws_idx, self.soil_prop_path, self.soil_prop_path)
-        
+
         return soil_constraints.getSoilQualities()
-        
 
     def orchestrate_fc4(self) -> float:
         smu_id = self.repo.site.smu_id or get_smu_id_value(self.repo.site.coordinates)
         if smu_id is None:
             raise ValueError(f"No SMU found at {self.repo.site.coordinates}")
 
-
         yield_in = self.repo.get_agroclimatic_yield()
 
+        # --- DEBUG ---
+        _debug_logger.debug(
+            "orchestrate_fc4 | crop=%-20s  smu_id=%s  agroclimatic_yield=%s",
+            self.repo.scenario.crop_name, smu_id, yield_in,
+        )
+        # --- END DEBUG ---
+
         return self.calculate_fc4_yield(smu_id, yield_in)
-
-
-
 
 
 # ---------------------------------------------------------------------------
 # Orchestration and Main
 # ---------------------------------------------------------------------------
-
 
 class YieldCalcOrchestrator:
     def __init__(self, coord, scenario, hwsd_repo, ardhi_repo):
@@ -179,10 +237,28 @@ class YieldCalcOrchestrator:
             "report_out": "engines/soil_properties_builder/output/results/report_results"
         }
 
+        # --- DEBUG ---
+        _debug_logger.debug(
+            "YieldCalcOrchestrator init | crop=%-20s  coord=%s  input_level=%s  water_supply=%s",
+            scenario.crop_name, coord, scenario.input_level, scenario.water_supply,
+        )
+        # --- END DEBUG ---
+            # --- DEBUG SKIP ---
+        _KNOWN_BROKEN_CROPS = {"gram"}
+        if scenario.crop_name.lower() in _KNOWN_BROKEN_CROPS:
+            raise ValueError(f"{scenario.crop_name} skipped — known missing SPH_val in edaphic table")
+        # --- END DEBUG SKIP ---
+
         # Step 1: get smu_id and fao_90 first
         smu_id = get_smu_id_value(coord)
-        
+        # --- DEBUG ---
+        _debug_logger.debug("  smu_id=%s", smu_id)
+        # --- END DEBUG ---
+
         fao_90 = hwsd_repo.get_fao_90(smu_id)
+        # --- DEBUG ---
+        _debug_logger.debug("  fao_90=%s", fao_90)
+        # --- END DEBUG ---
 
         # Step 2: init hwsd_gen (needs smu_id and fao_90)
         self.hwsd_gen = HWSDPropGenerator(
@@ -192,6 +268,9 @@ class YieldCalcOrchestrator:
 
         # Step 3: now get texture and ph (needs hwsd_gen)
         texture_class, ph_level = self.get_texture_and_ph()
+        # --- DEBUG ---
+        _debug_logger.debug("  texture_class=%s  ph_level=%s", texture_class, ph_level)
+        # --- END DEBUG ---
 
         # Step 4: build site with full info
         self.site = SiteContext(
@@ -201,7 +280,7 @@ class YieldCalcOrchestrator:
             smu_id=smu_id
         )
         self.fao_90_class = fao_90
-        
+
     def run_yield_pipeline(
         self,
         scenario: ScenarioConfig,
@@ -209,33 +288,69 @@ class YieldCalcOrchestrator:
         report_soil_path: str,
         hwsd_soil_path: str
     ) -> float:
+        # --- DEBUG ---
+        _debug_logger.debug(
+            "run_yield_pipeline | crop=%-20s  report_soil=%s  hwsd_soil=%s",
+            scenario.crop_name, report_soil_path, hwsd_soil_path,
+        )
+        # --- END DEBUG ---
+
         repo = YieldRepository(self.ardhi_repo, scenario, site)
 
         calc = YieldCalculator(repo, soil_prop_path=report_soil_path)
+
+        # --- DEBUG ---
+        _debug_logger.debug("  >> fc4_report ...")
+        # --- END DEBUG ---
         fc4_report = calc.orchestrate_fc4()
+        # --- DEBUG ---
+        _debug_logger.debug("  fc4_report=%s", fc4_report)
+        # --- END DEBUG ---
 
         calc.soil_prop_path = hwsd_soil_path
+
+        # --- DEBUG ---
+        _debug_logger.debug("  >> fc4_hwsd ...")
+        # --- END DEBUG ---
         fc4_hwsd = calc.orchestrate_fc4()
+        # --- DEBUG ---
+        _debug_logger.debug("  fc4_hwsd=%s", fc4_hwsd)
+        # --- END DEBUG ---
 
         final_gaez_yield = repo.get_full_constraints_yield()
-        fc5 = final_gaez_yield / fc4_hwsd if fc4_hwsd else 0.0
+        # --- DEBUG ---
+        _debug_logger.debug("  final_gaez_yield=%s", final_gaez_yield)
+        # --- END DEBUG ---
 
-        return fc4_report * fc5
+        fc5 = final_gaez_yield / fc4_hwsd if fc4_hwsd else 0.0
+        result = fc4_report * fc5
+
+        # --- DEBUG ---
+        _debug_logger.debug(
+            "  fc5=%s  final_result=%s",
+            fc5, result,
+        )
+        # --- END DEBUG ---
+
+        return result
 
     def run(self):
         hwsd_path, report_path = self._generate_soils()
+        # --- DEBUG ---
+        _debug_logger.debug("run | hwsd_path=%s  report_path=%s", hwsd_path, report_path)
+        # --- END DEBUG ---
         return self.run_yield_pipeline(
             scenario=self.scenario,
             site=self.site,
             report_soil_path=report_path,
             hwsd_soil_path=hwsd_path
         )
-        
+
     def get_texture_and_ph(self):
         texture_class = self.hwsd_gen.get_soter_texture()
         ph_level = ReportOperations(self.paths["report_input"]).get_report_ph_class()
         return texture_class, ph_level
-    
+
     def get_soil_qualities(self) -> list:
         hwsd_path, report_path = self._generate_soils()
         repo = YieldRepository(self.ardhi_repo, self.scenario, self.site)
@@ -243,8 +358,14 @@ class YieldCalcOrchestrator:
         return calc.get_soil_qualities()
 
     def _generate_soils(self):
+        # --- DEBUG ---
+        _debug_logger.debug("_generate_soils | crop=%s", self.scenario.crop_name)
+        # --- END DEBUG ---
 
         hwsd_soil_path = self.hwsd_gen.layers_orchestrator()
+        # --- DEBUG ---
+        _debug_logger.debug("  hwsd_soil_path=%s", hwsd_soil_path)
+        # --- END DEBUG ---
 
         report_ops = ReportOperations(self.paths["report_input"])
         report_gen = ReportPropGenerator(
@@ -256,42 +377,39 @@ class YieldCalcOrchestrator:
             output_dir=self.paths["report_out"],
             filename="report_soil"
         )
-        
+
         report_soil_path = report_gen.layers_orchestrator()
+        # --- DEBUG ---
+        _debug_logger.debug("  report_soil_path=%s", report_soil_path)
+        # --- END DEBUG ---
 
         return hwsd_soil_path, report_soil_path
 
 
-
 if __name__ == "__main__":
-    # 1. Setup Inputs
     coord = (36.858096, 9.962084)
     scenario = ScenarioConfig(
         crop_name="maize",
-        input_level=InputLevel.HIGH,
+        input_level=InputLevel.LOW,
         water_supply=WaterSupply.RAINFED
     )
-    
-    # 2. Open Connections
+
     conn_hwsd = get_hwsd_connection()
     conn_ardhi = get_ardhi_connection()
 
     try:
-        # 3. Use the Orchestrator's internal helper to build context
         hwsd_repo = HwsdRepository(conn_hwsd)
         ardhi_repo = ArdhiRepository(conn_ardhi)
-        
-        # 4. Initialize and Run
 
         orchestrator = YieldCalcOrchestrator(
-            coord= coord,
+            coord=coord,
             scenario=scenario,
             hwsd_repo=hwsd_repo,
             ardhi_repo=ardhi_repo
         )
-        
+
         qualities = orchestrator.get_soil_qualities()
-        
+
         final_yield = orchestrator.run()
         print(f"\n{'='*30}\nFINAL CALCULATED YIELD: {final_yield}\n{'='*30}")
 

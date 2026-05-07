@@ -60,6 +60,19 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(payload[0]["crop_code"], "WHE")
         self.assertEqual(payload[0]["planting_day"], 120)
 
+    def test_cors_headers_are_exposed_for_browser_clients(self):
+        with self._build_client([]) as client:
+            response = client.options(
+                "/metadata/selections",
+                headers={
+                    "Origin": "http://localhost:3000",
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("access-control-allow-origin"), "*")
+
     def test_submit_input_resolves_smu_and_fao_context(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
@@ -152,11 +165,9 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
         self.assertIn("user_input", payload)
-        self.assertIn("crop_needs", payload)
-        self.assertIn("fao_decision_questions", payload)
         self.assertEqual(payload["user_input"]["input_level"][0]["value"], "low")
-        self.assertEqual(payload["crop_needs"]["texture_class"][0]["value"], "fine")
-        self.assertEqual(payload["fao_decision_questions"][0]["id"], "water_context")
+        self.assertNotIn("crop_needs", payload)
+        self.assertNotIn("fao_decision_questions", payload)
 
     def test_economic_suitability_endpoint_returns_revenue_metrics(self):
         with self._build_client([]) as client:

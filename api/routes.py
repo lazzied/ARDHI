@@ -59,7 +59,7 @@ def root():
     "/metadata/selections",
     response_model=ApiResponse,
     summary="Get selectable frontend options",
-    description="Returns dropdown/select options for user inputs and the full FAO question bank used by the decision flow.",
+    description="Returns dropdown/select options for the base user input form.",
 )
 def get_selection_catalog():
     return success(build_selection_catalog(), units=selection_catalog_units())

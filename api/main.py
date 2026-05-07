@@ -4,6 +4,7 @@ import logging
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.dependencies import Repositories
@@ -48,6 +49,13 @@ def create_app(
         title="Backend API",
         version="1.0.0",
         lifespan=lifespan if lifespan_enabled else noop_lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     app.include_router(router)
 
