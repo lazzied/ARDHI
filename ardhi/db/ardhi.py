@@ -32,13 +32,32 @@ class ArdhiRepository:
         return query, params
 
     @staticmethod
-    def _normalize_water_context(
-        water_supply: WaterSupply,
-        irrigation_type: IrrigationType | None,
-    ) -> tuple[WaterSupply, IrrigationType | None]:
-        if _enum_value(water_supply) == WaterSupply.IRRIGATED.value and _enum_value(irrigation_type) == IrrigationType.SPRINKLER.value:
-            return WaterSupply.RAINFED, None
-        return water_supply, irrigation_type
+    def _normalize_water_context_edaphic(water_supply, irrigation_type):
+        """For edaphic_outputs table — uses 'rainfed_sprinkler'."""
+        if water_supply == WaterSupply.RAINFED:
+            return "rainfed_sprinkler", None
+        elif water_supply == WaterSupply.IRRIGATED:
+            if irrigation_type == IrrigationType.GRAVITY:
+                return "irrigated_gravity", irrigation_type
+            elif irrigation_type == IrrigationType.DRIP:
+                return "irrigated_drip", irrigation_type
+            elif irrigation_type == IrrigationType.SPRINKLER:
+                return "rainfed_sprinkler", irrigation_type
+        raise ValueError(f"Unhandled water supply: {water_supply}")
+
+    @staticmethod
+    def _normalize_water_context_tiff(water_supply, irrigation_type):
+        """For tiff_files table — uses 'rainfed'."""
+        if water_supply == WaterSupply.RAINFED:
+            return "rainfed", None
+        elif water_supply == WaterSupply.IRRIGATED:
+            if irrigation_type == IrrigationType.GRAVITY:
+                return "irrigated_gravity", irrigation_type
+            elif irrigation_type == IrrigationType.DRIP:
+                return "irrigated_drip", irrigation_type
+            elif irrigation_type == IrrigationType.SPRINKLER:
+                return "rainfed_sprinkler", irrigation_type
+        raise ValueError(f"Unhandled water supply: {water_supply}")
 
     def _fetch_file_paths(
         self,
@@ -76,7 +95,7 @@ class ArdhiRepository:
         water_supply: WaterSupply,
         irrigation_type: IrrigationType | None = None,
     ) -> dict[str, str]:
-        water_supply, irrigation_type = self._normalize_water_context(water_supply, irrigation_type)
+        water_supply, irrigation_type = self._normalize_water_context_tiff(water_supply, irrigation_type)
         return self._fetch_file_paths(
             "tiff_files",
             "crop_code",
@@ -96,7 +115,7 @@ class ArdhiRepository:
         map_code: str,
         irrigation_type: IrrigationType = None,
     ) -> str | None:
-        water_supply, irrigation_type = self._normalize_water_context(water_supply, irrigation_type)
+        water_supply, irrigation_type = self._normalize_water_context_tiff(water_supply, irrigation_type)
         return self._fetch_single_file_path(
             "tiff_files",
             {
@@ -116,7 +135,7 @@ class ArdhiRepository:
         input_level: InputLevel,
         irrigation_type: IrrigationType = None,
     ) -> str | None:
-        water_supply, irrigation_type = self._normalize_water_context(water_supply, irrigation_type)
+        water_supply, irrigation_type = self._normalize_water_context_tiff(water_supply, irrigation_type)
         return self._fetch_single_file_path(
             "tiff_files",
             {
@@ -134,7 +153,7 @@ class ArdhiRepository:
         ph_level: pH_level,
         texture_class: Texture,
     ) -> str | None:
-        water_supply, irrigation_type = self._normalize_water_context(
+        water_supply, irrigation_type = self._normalize_water_context_edaphic(
             scenario.water_supply,
             scenario.irrigation_type,
         )
@@ -158,7 +177,7 @@ class ArdhiRepository:
         texture_class: Texture,
         irrigation_type: IrrigationType = None,
     ) -> dict:
-        water_supply, irrigation_type = self._normalize_water_context(water_supply, irrigation_type)
+        water_supply, irrigation_type = self._normalize_water_context_edaphic(water_supply, irrigation_type)
         query = """
             SELECT crop_name, file_path
             FROM edaphic_outputs
@@ -168,10 +187,10 @@ class ArdhiRepository:
             AND texture_class = ?
         """
         params = [
-            input_level.value,
-            water_supply.value,
-            ph_level.value,
-            texture_class.value,
+            _enum_value(input_level),
+            water_supply,
+            _enum_value(ph_level),
+            _enum_value(texture_class),
         ]
         if self._table_has_column("edaphic_outputs", "irrigation_type"):
             query, params = self._append_optional_irrigation(query, params, irrigation_type)

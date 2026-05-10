@@ -244,20 +244,19 @@ def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
                               filepath=out_path, status="failed")
             return False
 
-        # Write CSVs per level into tmp subdirs, then merge into xlsx
         all_ok = True
         for input_level in wm.valid_input_levels:
             sq_dict  = all_results.get(input_level.value, {})
             out_path = _output_path(wm, crop_name, input_level, ph_level, texture_class)
 
             if os.path.exists(out_path):
-                logger.debug(f"SKIP (exists): {out_path}")
+                logger.info(f"SKIP  {crop_name} | {input_level.value} | {ph_level} | {texture_class}")
                 continue
 
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
             if not sq_dict:
-                logger.error(f"NO DATA [{out_path}]")
+                logger.error(f"NO DATA  {crop_name} | {input_level.value} | {ph_level} | {texture_class}")
                 insert_record(conn, crop_id=crop_id, crop_name=crop_name,
                               wm_name=wm.name, input_level=input_level.value,
                               ph_level=ph_level, texture_class=texture_class,
@@ -265,7 +264,6 @@ def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
                 all_ok = False
                 continue
 
-            # Write CSVs for this level into its own subdir
             level_dir = os.path.join(tmp, input_level.value)
             os.makedirs(level_dir, exist_ok=True)
             for sq_label, df in sq_dict.items():
@@ -274,7 +272,7 @@ def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
             try:
                 _write_xlsx(sq_dict, out_path)
             except Exception as e:
-                logger.error(f"WRITE FAILED [{out_path}]: {e}")
+                logger.error(f"WRITE FAILED  {crop_name} | {input_level.value} | {ph_level} | {texture_class} — {e}")
                 if os.path.exists(out_path): os.remove(out_path)
                 insert_record(conn, crop_id=crop_id, crop_name=crop_name,
                               wm_name=wm.name, input_level=input_level.value,
@@ -283,11 +281,11 @@ def run_one(wm: WaterSystem, crop_id: int, crop_name: str,
                 all_ok = False
                 continue
 
+            logger.info(f"OK    {crop_name} | {input_level.value} | {ph_level} | {texture_class} | SQs: {sorted(sq_dict.keys())}")
             insert_record(conn, crop_id=crop_id, crop_name=crop_name,
                           wm_name=wm.name, input_level=input_level.value,
                           ph_level=ph_level, texture_class=texture_class,
                           filepath=out_path, status="success")
-            logger.debug(f"OK: {out_path}")
 
     return all_ok
 
@@ -296,15 +294,16 @@ def run_full_pipeline() -> None:
     ensure_table()
 
     total = sum(
-        len(wm.crops) * 2 * len(TEXTURE_CLASSES)   # one trio call per crop × ph × texture
+        len(wm.crops) * 2 * len(TEXTURE_CLASSES)
         for wm in WATER_SYSTEMS
     )
-    logger.info(f"Pipeline start — {total} trio jobs across {len(WATER_SYSTEMS)} water systems")
+    logger.info(f"Pipeline start — {total} jobs | {len(WATER_SYSTEMS)} water systems")
 
     succeeded = failed = done = 0
 
     with sqlite3.connect(DB_PATH) as conn:
         for wm in WATER_SYSTEMS:
+            logger.info(f"--- {wm.name.upper()} ({len(wm.crops)} crops) ---")
             for crop_id, crop_info in sorted(wm.crops.items()):
                 crop_name = crop_info["name"]
                 for ph_level, ph_value in [("acidic", PH_ACIDIC), ("basic", PH_BASIC)]:
@@ -315,16 +314,13 @@ def run_full_pipeline() -> None:
                         done += 1
                         if ok: succeeded += 1
                         else:  failed += 1
-                        if done % 100 == 0 or done == total:
-                            logger.info(
-                                f"Progress {done}/{total} | "
-                                f"ok={succeeded} fail={failed}"
-                            )
+                        if done % 50 == 0 or done == total:
+                            logger.info(f"Progress {done}/{total} | ok={succeeded} fail={failed}")
 
     logger.info(f"Done — {succeeded} succeeded, {failed} failed out of {total}")
     logger.info(f"DB  → {os.path.abspath(DB_PATH)}")
     logger.info(f"Log → {os.path.abspath(LOG_PATH)}")
-
+    
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

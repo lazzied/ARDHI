@@ -253,6 +253,22 @@ def run_trio_aggregators(
     if "SQ1" in intermediate and "SQ1" not in high:
         high["SQ1"] = intermediate["SQ1"].copy()
 
+    # 4. intermediate and low may miss SPH_fct / SPH_val in SQ3-SQ7 — copy from high SQ3
+    SPH_ROWS    = ["SPH_fct", "SPH_val"]
+    SPH_SQ_KEYS = ["SQ3", "SQ4", "SQ5", "SQ6", "SQ7"]
+
+    if "SQ3" in high:
+        sph_source = high["SQ3"][high["SQ3"].index.isin(SPH_ROWS)]
+
+        for level_dict in (intermediate, low):
+            for sq_key in SPH_SQ_KEYS:
+                if sq_key not in level_dict:
+                    continue
+                df          = level_dict[sq_key]
+                missing_sph = sph_source[~sph_source.index.isin(df.index)]
+                if not missing_sph.empty:
+                    level_dict[sq_key] = pd.concat([df, missing_sph])
+
     results[InputLevel.INTERMEDIATE.value] = intermediate
     results[InputLevel.HIGH.value]         = high
     results[InputLevel.LOW.value]          = low
@@ -262,18 +278,16 @@ def run_trio_aggregators(
     # ------------------------------------------------------------------
     for level_dict in results.values():
         _patch_sph_from_sq7(level_dict)
-   
+
     for level, sq_dict in results.items():
         level_dir = f"{output_dir}/{level}"
-        os.makedirs(level_dir, exist_ok=True)   # ← add this
+        os.makedirs(level_dir, exist_ok=True)
 
         for sq_label, df in sq_dict.items():
             out_path = f"{level_dir}/{sq_label}.csv"
             write_sq_df_to_csv(df, out_path)
             print(f"[TrioAggregator] {level}/{sq_label} -> {out_path} ({len(df)} rows)")
-    
 
-        
     return results
     
 
@@ -287,7 +301,7 @@ if __name__ == "__main__":
         parser_registry      = PARSER_REGISTRY,
     )
     for level, sq_dict in results.items():
-        Output.merge_csvs_to_xlsx(
+        Output._merge_csvs_to_xlsx(
             f"data_scripts/edaphic_crop_reqs/results/{level}",
             f"data_scripts/edaphic_crop_reqs/results/{level}/merged_output.xlsx",
         )

@@ -58,5 +58,5 @@ STRATEGIES: Dict[str, str] = {
     "TXT": "AUG", "DRG": "AUG", "OSD": "AUG", "SPR": "AUG",
     "VSP": "AUG", "SPH": "AUG", "RSD": "AUG", "GYP": "AUG",
     "GRC": "AUG", "CEC_CLAY": "AUG", "CEC_SOIL": "AUG",
-    "TEB": "CALC", "BS": "CALC", "ESP": "CALC",
+    "TEB": "CALC", "BS": "CALC", "ESP": "AUG",
 }

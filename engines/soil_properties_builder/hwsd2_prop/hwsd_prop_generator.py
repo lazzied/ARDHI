@@ -108,7 +108,7 @@ def augmented_layers_group_to_dict(group: AugmentedLayersGroup) -> dict:
 
 if __name__ == "__main__":
     
-    smu_id = 31802
+    smu_id = 31822
     output_dir = "engines/soil_properties_builder/output/results/hwsd_results"
     filename = "hwsd_soil"
 

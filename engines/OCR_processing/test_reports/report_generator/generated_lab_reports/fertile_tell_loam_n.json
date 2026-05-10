@@ -4,162 +4,163 @@
       "attribute": "pH",
       "iso_method": "NF EN ISO 10390 (2022)",
       "unit": "---",
-      "value": 5
+      "value": 6.8
     },
     {
       "attribute": "Conductivité",
       "iso_method": "ISO 11265 (2025)",
       "unit": "mS/Cm",
-      "value": 0.9
+      "value": 0.4
     },
     {
       "attribute": "Salinité",
       "iso_method": "ISO 11265 (2025)",
       "unit": "%",
-      "value": 0.15
+      "value": null
     },
     {
       "attribute": "Humidité",
       "iso_method": "MA ISO 11465 (2025)",
       "unit": "%",
-      "value": 18.5
+      "value": null
     },
     {
       "attribute": "Matière sèche",
       "iso_method": "MA ISO 11465 (2025)",
       "unit": "%",
-      "value": 81.5
+      "value": null
     },
     {
       "attribute": "Matière Organique",
       "iso_method": "RODIER (2009)",
       "unit": "%",
-      "value": 2.4
+      "value": null
     },
     {
       "attribute": "Azote total",
       "iso_method": "ISO 13878 (2020)",
       "unit": "%",
-      "value": 0.18
+      "value": null
     },
     {
       "attribute": "Rapport C/N",
       "iso_method": "RODIER (2009)",
       "unit": "---",
-      "value": 11.5
+      "value": null
     },
     {
       "attribute": "Souffre",
       "iso_method": "ISO 15178 (2000)",
       "unit": "%",
-      "value": 0.02
+      "value": null
     },
     {
       "attribute": "Taux de carbone",
       "iso_method": "ISO 10694 (2020)",
       "unit": "%",
-      "value": 1.4
+      "value": 2.4
     },
     {
       "attribute": "Carbonates de Calcium",
       "iso_method": "ISO 10693 (2021)",
       "unit": "%",
-      "value": 8
+      "value": 1.2
     },
     {
       "attribute": "Phosphore",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 0.6
+      "value": null
     },
     {
       "attribute": "Potassium",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 1.8
+      "value": null
     },
     {
       "attribute": "Magnésium",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 0.9
+      "value": null
     },
     {
       "attribute": "Calcium",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 6.5
+      "value": null
     },
     {
       "attribute": "Manganèse",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 0.08
+      "value": null
     },
     {
       "attribute": "Bore",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 0.01
+      "value": null
     },
     {
       "attribute": "Cuivre",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 0.02
+      "value": null
     },
     {
       "attribute": "Fer",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 2.5
+      "value": null
     },
     {
       "attribute": "Zinc",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 0.03
+      "value": null
     },
     {
       "attribute": "Molybdène",
       "iso_method": "ISO 11047 (2023)",
       "unit": "g/Kg MS",
-      "value": 0.002
+      "value": null
     },
     {
       "attribute": "Calcium échangeable",
       "iso_method": "ISO 11260 (2018)",
       "unit": "g/Kg MS",
-      "value": 5.8
+      "value": 3.65
     },
     {
       "attribute": "Magnésium échangeable",
       "iso_method": "ISO 11260 (2018)",
       "unit": "g/Kg MS",
-      "value": 1.1
+      "value": 0.78
     },
     {
       "attribute": "Potassium échangeable",
       "iso_method": "ISO 11260 (2018)",
       "unit": "g/Kg MS",
-      "value": 0.35
+      "value": 0.14
     },
     {
       "attribute": "Phosphore échangeable",
       "iso_method": "ISO 11260 (2018)",
       "unit": "g/Kg MS",
-      "value": 0.15
+      "value": null
     },
     {
       "attribute": "Sodium échangeable",
       "iso_method": "ISO 11260 (2018)",
       "unit": "g/Kg MS",
-      "value": 0.12
+      "value": 0.04
     },
     {
       "attribute": "Calcaire actif",
       "iso_method": "NF X 31-106 (2002)",
       "unit": "%",
-      "value": 4.5
+      "value": null
     }
-  ]}
+  ]
+}

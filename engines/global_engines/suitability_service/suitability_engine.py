@@ -4,7 +4,7 @@ import logging
 from ardhi.db.ardhi import ArdhiRepository
 from ardhi.db.connections import get_ardhi_connection
 from data_scripts.gaez_scripts.metadata.gaez_metadata_templates import CROP_REGISTRY
-from engines.OCR_processing.models import InputLevel, IrrigationType, WaterSupply
+from engines.OCR_processing.models import DRIP_IRRIGATED_CROPS, GRAVITY_IRRIGATED_CROPS, RAINFED_SPRINKLER_CROPS, InputLevel, IrrigationType, WaterSupply
 from engines.global_engines.suitability_service.debug_print_suitability import print_suitability_ranking
 from engines.global_engines.suitability_service.models import SUITABILITY_LAYERS, CropSuitabilityScore, RankingSuitability
 from raster.tiff_operations import read_tiff_pixel
@@ -35,23 +35,39 @@ class CropSuitability:
         self.irrigation_type = irrigation_type
         self.coord = coord
 
-        self.crop_names = self.build_crop_names()
+        self.crop_names = self.build_crop_names(self.get_valid_crops())
         self.tiff_dict = {}
         self.build_tiff_dict()
 
     @staticmethod
-    def build_crop_names() -> dict:
+    def build_crop_names(valid_crops: set[str]) -> dict:
         names = {}
         for crop_key, crop in CROP_REGISTRY.items():
-            caption = crop.get("caption", crop_key)
+            pyaez_name = crop.get("pyaez_name") or crop.get("caption", crop_key).lower()
             res05_code = crop.get("codes", {}).get("RES05")
-            if res05_code:
-                names[res05_code] = caption
+
+            if res05_code and pyaez_name in valid_crops:
+                names[res05_code] = pyaez_name
+
             for st_key, st in crop.get("subtypes", {}).items():
+                st_pyaez = st.get("pyaez_name") or st.get("description", f"{pyaez_name} ({st_key})").lower()
                 st_code = st.get("codes", {}).get("RES05")
-                if st_code:
-                    names[st_code] = st.get("description", f"{caption} ({st_key})")
+                if st_code and st_pyaez in valid_crops:
+                    names[st_code] = st_pyaez
+
         return names
+    
+    def get_valid_crops(self) -> set[str]:
+        if self.water_supply == WaterSupply.RAINFED:
+            return RAINFED_SPRINKLER_CROPS
+        elif self.water_supply == WaterSupply.IRRIGATED:
+            if self.irrigation_type == IrrigationType.SPRINKLER:
+                return RAINFED_SPRINKLER_CROPS
+            elif self.irrigation_type == IrrigationType.GRAVITY:
+                return GRAVITY_IRRIGATED_CROPS
+            elif self.irrigation_type == IrrigationType.DRIP:
+                return DRIP_IRRIGATED_CROPS
+        raise ValueError(f"Unhandled water_supply={self.water_supply}, irrigation_type={self.irrigation_type}")
 
     def build_tiff_dict(self) -> None:
         for key, map_code in SUITABILITY_LAYERS.items():

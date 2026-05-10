@@ -1,0 +1,199 @@
+
+=========================================================================
+REGION: fertile_tell_loam_n.json
+COORDINATE: (36.68, 9.05)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | switchgrass          | 4364            | 6046 kg/ha       | 1682.00 kg/ha | 27.8%     
+2     | maize                | 3365            | 932 kg/ha        | -2433.00 kg/ha | -261.1%   
+3     | miscanthus           | 3120            | 11412 kg/ha      | 8292.00 kg/ha | 72.7%     
+4     | wheat                | 1587            | 1887 kg/ha       | 300.00 kg/ha | 15.9%     
+5     | barley               | 1354            | 1752 kg/ha       | 398.00 kg/ha | 22.7%     
+6     | alfalfa              | 1250            | 1836 kg/ha       | 586.00 kg/ha | 31.9%     
+7     | sorghum              | 1023            | 1254 kg/ha       | 231.00 kg/ha | 18.4%     
+8     | oat                  | 980             | 1169 kg/ha       | 189.00 kg/ha | 16.2%     
+9     | rye                  | 889             | 1060 kg/ha       | 171.00 kg/ha | 16.1%     
+10    | carrot               | 879             | 2754 kg/ha       | 1875.00 kg/ha | 68.1%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: medjerda_valley
+COORDINATE: (36.57, 9.72)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | miscanthus           | 2751            | 0 kg/ha          | -2751.00 kg/ha | N/A       
+2     | wheat                | 1874            | 1443 kg/ha       | -431.00 kg/ha | -29.9%    
+3     | barley               | 1643            | 1364 kg/ha       | -279.00 kg/ha | -20.5%    
+4     | cabbage              | 1229            | 982 kg/ha        | -247.00 kg/ha | -25.2%    
+5     | sorghum              | 952             | 733 kg/ha        | -219.00 kg/ha | -29.9%    
+6     | jatropha             | 924             | 734 kg/ha        | -190.00 kg/ha | -25.9%    
+7     | olive                | 808             | 626 kg/ha        | -182.00 kg/ha | -29.1%    
+8     | oat                  | 783             | 594 kg/ha        | -189.00 kg/ha | -31.8%    
+9     | chickpea             | 745             | 628 kg/ha        | -117.00 kg/ha | -18.6%    
+10    | tomato               | 705             | 1039 kg/ha       | 334.00 kg/ha | 32.1%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: alkaline_sahel_olive_grove.json
+COORDINATE: (35.74, 10.55)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | wheat                | 770             | 593 kg/ha        | -177.00 kg/ha | -29.8%    
+2     | sorghum              | 760             | 653 kg/ha        | -107.00 kg/ha | -16.4%    
+3     | barley               | 625             | 571 kg/ha        | -54.00 kg/ha | -9.5%     
+4     | cabbage              | 292             | 399 kg/ha        | 107.00 kg/ha | 26.8%     
+5     | sunflower            | 271             | 204 kg/ha        | -67.00 kg/ha | -32.8%    
+6     | oat                  | 261             | 254 kg/ha        | -7.00 kg/ha  | -2.8%     
+7     | tomato               | 241             | 232 kg/ha        | -9.00 kg/ha  | -3.9%     
+8     | olive                | 217             | 175 kg/ha        | -42.00 kg/ha | -24.0%    
+9     | onion                | 212             | 196 kg/ha        | -16.00 kg/ha | -8.2%     
+10    | carrot               | 210             | 244 kg/ha        | 34.00 kg/ha  | 13.9%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: alkaline_enfidha_plain.json
+COORDINATE: (36.08, 10.25)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | miscanthus           | 1186            | 0 kg/ha          | -1186.00 kg/ha | N/A       
+2     | wheat                | 1015            | 765 kg/ha        | -250.00 kg/ha | -32.7%    
+3     | barley               | 835             | 777 kg/ha        | -58.00 kg/ha | -7.5%     
+4     | sorghum              | 731             | 514 kg/ha        | -217.00 kg/ha | -42.2%    
+5     | cabbage              | 414             | 372 kg/ha        | -42.00 kg/ha | -11.3%    
+6     | oat                  | 355             | 368 kg/ha        | 13.00 kg/ha  | 3.5%      
+7     | jatropha             | 353             | 234 kg/ha        | -119.00 kg/ha | -50.9%    
+8     | sunflower            | 320             | 390 kg/ha        | 70.00 kg/ha  | 17.9%     
+9     | olive                | 296             | 267 kg/ha        | -29.00 kg/ha | -10.9%    
+10    | onion                | 288             | 727 kg/ha        | 439.00 kg/ha | 60.4%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: zaghouan_hillslope
+COORDINATE: (36.32, 10.02)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | switchgrass          | 2359            | 4052 kg/ha       | 1693.00 kg/ha | 41.8%     
+2     | miscanthus           | 1592            | 3612 kg/ha       | 2020.00 kg/ha | 55.9%     
+3     | wheat                | 723             | 1216 kg/ha       | 493.00 kg/ha | 40.5%     
+4     | barley               | 600             | 1112 kg/ha       | 512.00 kg/ha | 46.0%     
+5     | sorghum              | 506             | 844 kg/ha        | 338.00 kg/ha | 40.0%     
+6     | cabbage              | 493             | 1003 kg/ha       | 510.00 kg/ha | 50.8%     
+7     | oat                  | 366             | 580 kg/ha        | 214.00 kg/ha | 36.9%     
+8     | rye                  | 301             | 479 kg/ha        | 178.00 kg/ha | 37.2%     
+9     | chickpea             | 240             | 603 kg/ha        | 363.00 kg/ha | 60.2%     
+10    | olive                | 238             | 589 kg/ha        | 351.00 kg/ha | 59.6%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: cap_bon
+COORDINATE: (36.78, 10.85)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | miscanthus           | 4756            | 13734 kg/ha      | 8978.00 kg/ha | 65.4%     
+2     | maize                | 3600            | 666 kg/ha        | -2934.00 kg/ha | -440.5%   
+3     | alfalfa              | 1651            | 2258 kg/ha       | 607.00 kg/ha | 26.9%     
+4     | wheat                | 1522            | 1711 kg/ha       | 189.00 kg/ha | 11.0%     
+5     | barley               | 1222            | 1654 kg/ha       | 432.00 kg/ha | 26.1%     
+6     | carrot               | 1049            | 1704 kg/ha       | 655.00 kg/ha | 38.4%     
+7     | sorghum              | 1001            | 1135 kg/ha       | 134.00 kg/ha | 11.8%     
+8     | onion                | 917             | 1673 kg/ha       | 756.00 kg/ha | 45.2%     
+9     | jatropha             | 884             | 1176 kg/ha       | 292.00 kg/ha | 24.8%     
+10    | cabbage              | 872             | 1427 kg/ha       | 555.00 kg/ha | 38.9%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: degraded_overirrigated_beja.json
+COORDINATE: (36.65, 9.38)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | maize                | 286             | 557 kg/ha        | 271.00 kg/ha | 48.7%     
+2     | miscanthus           | 241             | 6146 kg/ha       | 5905.00 kg/ha | 96.1%     
+3     | citrus               | 75              | 1664 kg/ha       | 1589.00 kg/ha | 95.5%     
+4     | carrot               | 64              | 2177 kg/ha       | 2113.00 kg/ha | 97.1%     
+5     | cabbage              | 60              | 1331 kg/ha       | 1271.00 kg/ha | 95.5%     
+6     | chickpea             | 55              | 1018 kg/ha       | 963.00 kg/ha | 94.6%     
+7     | tomato               | 54              | 1096 kg/ha       | 1042.00 kg/ha | 95.1%     
+8     | onion                | 50              | 1584 kg/ha       | 1534.00 kg/ha | 96.8%     
+9     | wheat                | 49              | 1610 kg/ha       | 1561.00 kg/ha | 97.0%     
+10    | oat                  | 48              | 757 kg/ha        | 709.00 kg/ha | 93.7%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: organic_rich_kroumirie_forest.json
+COORDINATE: (36.72, 8.55)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | miscanthus           | 1245            | 12262 kg/ha      | 11017.00 kg/ha | 89.8%     
+2     | switchgrass          | 1145            | 6735 kg/ha       | 5590.00 kg/ha | 83.0%     
+3     | maize                | 1130            | 1471 kg/ha       | 341.00 kg/ha | 23.2%     
+4     | alfalfa              | 731             | 3939 kg/ha       | 3208.00 kg/ha | 81.4%     
+5     | onion                | 581             | 2651 kg/ha       | 2070.00 kg/ha | 78.1%     
+6     | wheat                | 436             | 1757 kg/ha       | 1321.00 kg/ha | 75.2%     
+7     | carrot               | 418             | 2526 kg/ha       | 2108.00 kg/ha | 83.5%     
+8     | citrus               | 413             | 2260 kg/ha       | 1847.00 kg/ha | 81.7%     
+9     | barley               | 404             | 1581 kg/ha       | 1177.00 kg/ha | 74.4%     
+10    | tomato               | 295             | 1459 kg/ha       | 1164.00 kg/ha | 79.8%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: organic_rich_mogods_hillside.json
+COORDINATE: (37.05, 9.12)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | miscanthus           | 2498            | 18349 kg/ha      | 15851.00 kg/ha | 86.4%     
+2     | maize                | 1570            | 1385 kg/ha       | -185.00 kg/ha | -13.4%    
+3     | cassava              | 1547            | 1614 kg/ha       | 67.00 kg/ha  | 4.2%      
+4     | alfalfa              | 1309            | 3983 kg/ha       | 2674.00 kg/ha | 67.1%     
+5     | carrot               | 1195            | 3712 kg/ha       | 2517.00 kg/ha | 67.8%     
+6     | citrus               | 1160            | 2315 kg/ha       | 1155.00 kg/ha | 49.9%     
+7     | tomato               | 910             | 1514 kg/ha       | 604.00 kg/ha | 39.9%     
+8     | buckwheat            | 854             | 954 kg/ha        | 100.00 kg/ha | 10.5%     
+9     | wheat                | 605             | 1995 kg/ha       | 1390.00 kg/ha | 69.7%     
+10    | sorghum              | 505             | 1110 kg/ha       | 605.00 kg/ha | 54.5%     
+
+(Showing top 10 out of 47 total crops analyzed)
+
+=========================================================================
+REGION: saline_irrigated_sfax_plain.json
+COORDINATE: (34.68, 10.62)
+=========================================================================
+
+Rank  | Crop Name            | Actual Yield    | Regional Yield   | Gap kg/ha    | Gap %     
+------------------------------------------------------------------------------------
+1     | sorghum              | 329             | 255 kg/ha        | -74.00 kg/ha | -29.0%    
+2     | cabbage              | 221             | 172 kg/ha        | -49.00 kg/ha | -28.5%    
+3     | barley               | 194             | 217 kg/ha        | 23.00 kg/ha  | 10.6%     
+4     | carrot               | 148             | 153 kg/ha        | 5.00 kg/ha   | 3.3%      
+5     | onion                | 147             | 118 kg/ha        | -29.00 kg/ha | -24.6%    
+6     | groundnut            | 128             | 98 kg/ha         | -30.00 kg/ha | -30.6%    
+7     | tomato               | 122             | 96 kg/ha         | -26.00 kg/ha | -27.1%    
+8     | flax                 | 63              | 50 kg/ha         | -13.00 kg/ha | -26.0%    
+9     | buckwheat            | 61              | 60 kg/ha         | -1.00 kg/ha  | -1.7%     
+
+(Showing top 9 out of 47 total crops analyzed)

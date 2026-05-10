@@ -25,6 +25,7 @@ class ReportOperations:
             # Fix the "Setter": Map attributes to their full dictionary data
             self.data = {item["attribute"]: item for item in report_list}
             
+            
         print(f"Loaded {len(self.data)} attributes.")
 
     def get_attribute_value(self, attribute_name: str) -> Union[float, int, None]:
@@ -99,15 +100,15 @@ class CalcStrategy():
 
     
     def compute_TEB(self, Ca: float, Mg: float, K: float, Na: float):
-        
+
         def to_cmolc(g_per_kg, atomic_mass, charge):
-            return (g_per_kg * charge * 100) / atomic_mass
-        
+            return (g_per_kg / atomic_mass) * charge * 10
+
         ca = to_cmolc(float(Ca), atomic_mass=40.08, charge=2)
         mg = to_cmolc(float(Mg), atomic_mass=24.31, charge=2)
         k  = to_cmolc(float(K),  atomic_mass=39.10, charge=1)
         na = to_cmolc(float(Na), atomic_mass=22.99, charge=1)
-        
+
         return round(ca + mg + k + na, 4), round(na, 4)
 
     def compute_BS(self, TEB: float, CEC_SOIL: float) -> float:
@@ -116,30 +117,45 @@ class CalcStrategy():
         return round(min(100.0 * TEB / CEC_SOIL, 100.0), 4)
 
     def compute_ESP(self, Na_cmolc: float, CEC_SOIL: float) -> float:
+        """
+        HWSD v2.0 definition (p.17):
+            ESP = Na × 100 / CECsoil
+        """
         if not CEC_SOIL:
             return 0.0
         return round(min(100.0 * Na_cmolc / CEC_SOIL, 100.0), 4)
 
     def compute(self, wrb4_class):
-        
-        ca       = self.report_operations.get_attribute_value("Calcium échangeable")
-        mg       = self.report_operations.get_attribute_value("Magnésium échangeable")
-        k        = self.report_operations.get_attribute_value("Potassium échangeable")
-        na       = self.report_operations.get_attribute_value("Sodium échangeable")
-        
-        CEC_soil = self.hwsd_repo.get_layer_attribute(self.smu_id,"CEC_SOIL", wrb4_class, "D1")
-        
-        print(f"[CalcStrategy.compute] smu_id={self.smu_id} "
-              f"ca={ca} mg={mg} k={k} na={na} CEC_soil={CEC_soil}")
+
+        ca = self.report_operations.get_attribute_value("Calcium échangeable")
+        mg = self.report_operations.get_attribute_value("Magnésium échangeable")
+        k  = self.report_operations.get_attribute_value("Potassium échangeable")
+        na = self.report_operations.get_attribute_value("Sodium échangeable")
+
+        CEC_soil = self.hwsd_repo.get_layer_attribute(
+            self.smu_id,
+            "CEC_SOIL",
+            wrb4_class,
+            "D1"
+        )
+
+        print(
+            f"[CalcStrategy.compute] smu_id={self.smu_id} "
+            f"ca={ca} mg={mg} k={k} na={na} CEC_soil={CEC_soil}"
+        )
 
         teb, na_cmolc = self.compute_TEB(ca, mg, k, na)
 
+        # HWSD v2.0 definitions:
+        #   TEB = Ca + Mg + K + Na                  (cmolc/kg)
+        #   BS  = TEB / CEC_SOIL × 100              (%)
+        #   ESP = Na  / CEC_SOIL × 100              (%)
         return {
             "TEB": teb,
             "BS":  self.compute_BS(teb, CEC_soil),
             "ESP": self.compute_ESP(na_cmolc, CEC_soil),
         }
-        
+            
 
 class ReportPropGenerator:
     def __init__(self, smu_id, wrb4_class, report_ops, hwsd_repo, hwsd_prop_generator: HWSDPropGenerator, output_dir,filename):
@@ -194,11 +210,9 @@ class ReportPropGenerator:
         
     ) -> AugmentedLayersGroup:
         
-            if d1 is None:
-                d1,d2 = self.build_augmented_layer()
-            if d2 is None:
-                d3_hwsd = self.hwsd_prop_generator.compute("D2")
-                d3 = self.interpolate(d1, d3_hwsd)
+            d1,d2 = self.build_augmented_layer()
+            d3_hwsd = self.hwsd_prop_generator.compute("D2")
+            d3 = self.interpolate(d1, d3_hwsd)
             
             d4_to_d7_group = self.hwsd_prop_generator.build_range_augmented_layers((3, 7))
             d4_to_d7_layers = d4_to_d7_group.layers
@@ -214,7 +228,7 @@ class ReportPropGenerator:
 if __name__ == "__main__":
     report       = "engines/soil_properties_builder/report_augmentation/input/rapport_values.json"
     hwsd_db      = "hwsd.db"
-    smu_id       = 31835
+    smu_id       = 31822
     output       = "engines/soil_properties_builder/output/results/report_results"
     filename     = "report_soil"
     

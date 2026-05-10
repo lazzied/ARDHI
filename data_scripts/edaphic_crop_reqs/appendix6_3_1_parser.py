@@ -17,6 +17,7 @@ from data_scripts.edaphic_crop_reqs.models import InputLevel
 # ---------------------------------------------------------------------------
 # Sheet layout constants (0-based row / column indices)
 # ---------------------------------------------------------------------------
+
 ATTRIBUTE_ROW   = 2   # long attribute description
 SQ_ROW          = 3   # SQ label
 INPUT_LEVEL_ROW = 4   # input level text
