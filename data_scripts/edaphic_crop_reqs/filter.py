@@ -43,6 +43,6 @@ def split_excel_to_csv(input_file, output_dir="output_csvs"):
 
 
 # Usage
-INPUT_FILE = "engines/edaphic_crop_reqs/appendixes/drip_irrigation_appendix/Appendix_6-5.xlsx"
-OUTPUT_DIR = "engines/edaphic_crop_reqs/appendixes/drip_irrigation_appendix/csv_sheets"
+INPUT_FILE = "data_scripts/edaphic_crop_reqs/appendixes/drip_irrigation_appendix/Appendix_6-5.xlsx"
+OUTPUT_DIR = "data_scripts/edaphic_crop_reqs/appendixes/drip_irrigation_appendix/csv_sheets"
 split_excel_to_csv(INPUT_FILE, OUTPUT_DIR)

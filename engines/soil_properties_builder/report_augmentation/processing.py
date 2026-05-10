@@ -85,8 +85,8 @@ class AugStrategy():
 
         return result
     
-    def compute(self, fao_90_class,smu_id):
-        raw_dict = self.hwsd_repo.get_single_layer_attributes(HWSD_COLUMNS, fao_90_class,"D1", smu_id)
+    def compute(self, wrb4_class,smu_id):
+        raw_dict = self.hwsd_repo.get_single_layer_attributes(HWSD_COLUMNS, wrb4_class,"D1", smu_id)
         return self.apply_transformations(raw_dict)
 
 
@@ -120,14 +120,14 @@ class CalcStrategy():
             return 0.0
         return round(min(100.0 * Na_cmolc / CEC_SOIL, 100.0), 4)
 
-    def compute(self, fao_90_class):
+    def compute(self, wrb4_class):
         
         ca       = self.report_operations.get_attribute_value("Calcium échangeable")
         mg       = self.report_operations.get_attribute_value("Magnésium échangeable")
         k        = self.report_operations.get_attribute_value("Potassium échangeable")
         na       = self.report_operations.get_attribute_value("Sodium échangeable")
         
-        CEC_soil = self.hwsd_repo.get_layer_attribute(self.smu_id,"CEC_SOIL", fao_90_class, "D1")
+        CEC_soil = self.hwsd_repo.get_layer_attribute(self.smu_id,"CEC_SOIL", wrb4_class, "D1")
         
         print(f"[CalcStrategy.compute] smu_id={self.smu_id} "
               f"ca={ca} mg={mg} k={k} na={na} CEC_soil={CEC_soil}")
@@ -142,21 +142,21 @@ class CalcStrategy():
         
 
 class ReportPropGenerator:
-    def __init__(self, smu_id, fao_90_class, report_ops, hwsd_repo, hwsd_prop_generator: HWSDPropGenerator, output_dir,filename):
+    def __init__(self, smu_id, wrb4_class, report_ops, hwsd_repo, hwsd_prop_generator: HWSDPropGenerator, output_dir,filename):
         self.smu_id              = smu_id
-        self.fao_90_class        = fao_90_class
+        self.wrb4_class          = wrb4_class
         self.report_ops          = report_ops
         self.hwsd_repo           = hwsd_repo
         self.hwsd_prop_generator = hwsd_prop_generator
         self.output_dir          = output_dir
         self.filename            = filename
         
-    def interpolate(self, d1: AugmentedLayer, d2_hwsd: AugmentedLayer) -> AugmentedLayer:
+    def interpolate(self, d1: AugmentedLayer, d3_hwsd: AugmentedLayer) -> AugmentedLayer:
         
         values: Dict[str, Any] = {}
         for attr in NUM_ATTRIBUTES:
             v1 = d1.values.get(attr)
-            v2 = d2_hwsd.values.get(attr)
+            v2 = d3_hwsd.values.get(attr)
             if attr in CLASS_ATTRIBUTES:
                 values[attr] = v2 if v2 is not None else v1
                 continue
@@ -169,39 +169,41 @@ class ReportPropGenerator:
             else: 
                 values[attr] = None
                 
-        return AugmentedLayer("D2", values, d2_hwsd.smu_id)
+        return AugmentedLayer("D3", values, d3_hwsd.smu_id)
 
-    def build_D1_augmented_layer(self) -> AugmentedLayer:
+    def build_augmented_layer(self) -> AugmentedLayer:
         
         aug_strategy = AugStrategy(self.hwsd_repo, self.smu_id)
         read_strategy = ReadStrategy(self.report_ops)
         calc_strategy = CalcStrategy(self.report_ops, self.hwsd_repo,self.smu_id)
         
-        aug_attributes = aug_strategy.compute(self.fao_90_class, self.smu_id)
+        aug_attributes = aug_strategy.compute(self.wrb4_class, self.smu_id)
         read_attributes = read_strategy.compute()
         print("read_attrs:",read_attributes)
-        calc_attributes = calc_strategy.compute(self.fao_90_class)
+        calc_attributes = calc_strategy.compute(self.wrb4_class)
         
         full_attributes = aug_attributes | read_attributes | calc_attributes
         
         
-        return AugmentedLayer("D1", full_attributes, self.smu_id)
+        return AugmentedLayer("D1", full_attributes, self.smu_id), AugmentedLayer("D2", full_attributes, self.smu_id)
 
     def build_augmented_layers(
         self,
         d1: AugmentedLayer | None = None,
         d2: AugmentedLayer | None = None,
+        
     ) -> AugmentedLayersGroup:
+        
             if d1 is None:
-                d1 = self.build_D1_augmented_layer()
+                d1,d2 = self.build_augmented_layer()
             if d2 is None:
-                d2_hwsd = self.hwsd_prop_generator.compute("D2")
-                d2 = self.interpolate(d1, d2_hwsd)
+                d3_hwsd = self.hwsd_prop_generator.compute("D2")
+                d3 = self.interpolate(d1, d3_hwsd)
             
-            d3_to_d7_group = self.hwsd_prop_generator.build_range_augmented_layers((3, 7))
-            d3_to_d7_layers = d3_to_d7_group.layers
+            d4_to_d7_group = self.hwsd_prop_generator.build_range_augmented_layers((3, 7))
+            d4_to_d7_layers = d4_to_d7_group.layers
             
-            return AugmentedLayersGroup([d1, d2] + d3_to_d7_layers)
+            return AugmentedLayersGroup([d1, d2, d3] + d4_to_d7_layers)
 
 
     def layers_orchestrator(self) -> str:
@@ -219,15 +221,15 @@ if __name__ == "__main__":
     conn = get_hwsd_connection()
     try:
         hwsd_repo           = HwsdRepository(conn)
-        fao_90_class = hwsd_repo.get_fao_90(smu_id)
-        hwsd_repo.debug_query(smu_id, fao_90_class)
+        wrb4_class = hwsd_repo.get_wrb4(smu_id)
+        hwsd_repo.debug_query(smu_id, wrb4_class)
 
         report_ops          = ReportOperations(report)
-        hwsd_prop_generator = HWSDPropGenerator(smu_id,fao_90_class, hwsd_repo,output,filename)
+        hwsd_prop_generator = HWSDPropGenerator(smu_id,wrb4_class, hwsd_repo,output,filename)
         
         report_prop_generator = ReportPropGenerator(
             smu_id              = smu_id,
-            fao_90_class        = fao_90_class,
+            wrb4_class          = wrb4_class,
             report_ops          = report_ops,
             hwsd_repo           = hwsd_repo,
             hwsd_prop_generator = hwsd_prop_generator,

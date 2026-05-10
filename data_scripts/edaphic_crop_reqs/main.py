@@ -26,19 +26,19 @@ from typing import Dict, List
 
 import pandas as pd
 
-from engines.edaphic_crop_reqs.constants import (
+from data_scripts.edaphic_crop_reqs.constants import (
     CROPS_RAINFED_SPRINKLER,
     CROPS_DRIP_IRRIGATION,
     CROPS_GRAVITY_IRRIGATION,
 )
-from engines.edaphic_crop_reqs.models import InputLevel
-from engines.edaphic_crop_reqs.edaphic_orchestrator import run_trio_aggregators
+from data_scripts.edaphic_crop_reqs.models import InputLevel
+from data_scripts.edaphic_crop_reqs.edaphic_orchestrator import run_trio_aggregators
 
-import engines.edaphic_crop_reqs.appendix6_3_1_parser as parser_1
-import engines.edaphic_crop_reqs.appendix6_3_2_parser as parser_2
-import engines.edaphic_crop_reqs.appendix6_3_3_parser as parser_3
-import engines.edaphic_crop_reqs.appendix6_3_4_parser as parser_4
-from engines.edaphic_crop_reqs.utils_functions import write_sq_df_to_csv
+import data_scripts.edaphic_crop_reqs.appendix6_3_1_parser as parser_1
+import data_scripts.edaphic_crop_reqs.appendix6_3_2_parser as parser_2
+import data_scripts.edaphic_crop_reqs.appendix6_3_3_parser as parser_3
+import data_scripts.edaphic_crop_reqs.appendix6_3_4_parser as parser_4
+from data_scripts.edaphic_crop_reqs.utils_functions import write_sq_df_to_csv
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ PH_BASIC  = 8.0
 TEXTURE_CLASSES = ["fine", "medium", "coarse"]
 ALL_SQ_LABELS   = [f"SQ{i}" for i in range(1, 8)]
 
-BASE = "engines/edaphic_crop_reqs/appendixes"
+BASE = "data_scripts/edaphic_crop_reqs/appendixes"
 
 
 # ---------------------------------------------------------------------------

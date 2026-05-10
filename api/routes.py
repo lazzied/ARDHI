@@ -11,8 +11,8 @@ from api.services import (
     build_crops_info,
     build_crops_needs_for_user,
     build_economic_suitability,
-    build_fao_decision,
-    build_fao_questions,
+    build_wrb_decision,
+    build_wrb_questions,
     build_global_crop_recommendations,
     build_global_soil_quality_for_user,
     build_hwsd_soil_report_for_user,
@@ -21,7 +21,7 @@ from api.services import (
     crop_recommendation_units,
     crops_info_units,
     economic_units,
-    fao_decision_units,
+    wrb_decision_units,
     lab_report_units,
     persist_lab_report,
     build_report_crop_recommendations,
@@ -32,7 +32,7 @@ from api.services import (
     soil_quality_units,
     store_user_input,
     build_augmented_soil_report_for_user,
-    submit_fao_answers,
+    submit_wrb_answers,
 )
 from api.session import user_sessions
 
@@ -90,7 +90,7 @@ def receive_lab_report(data: LabReport):
     "/submit-input",
     response_model=ApiResponse,
     summary="Store base user input",
-    description="Stores the main user input. The backend resolves smu_id from coord and seeds the session with the best current FAO90 class.",
+    description="Stores the main user input. The backend resolves smu_id from coord and seeds the session with the best current WRB4 class.",
 )
 def submit_input(
     data: SubmitInputRequest,
@@ -101,37 +101,37 @@ def submit_input(
 
 
 @router.get(
-    "/fao-decision/get-questions/{user_id}",
+    "/wrb-decision/get-questions/{user_id}",
     response_model=ApiResponse,
     summary="Get the current FAO decision question",
-    description="Uses the stored user session to return the next relevant FAO question and options, or the final selected FAO90 class if the decision is already complete.",
+    description="Uses the stored user session to return the next relevant FAO question and options, or the final selected WRB4 class if the decision is already complete.",
 )
-def get_fao_decision_questions(
+def get_wrb_decision_questions(
     user_id: str,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_fao_questions(user_id, repos), units=fao_decision_units())
+    return success(build_wrb_questions(user_id, repos), units=wrb_decision_units())
 
 
 @router.post(
-    "/fao-decision/post-answers",
+    "/wrb-decision/post-answers",
     response_model=ApiResponse,
     summary="Submit FAO decision answers",
-    description="Stores new FAO decision answers for the current user session and returns either the next question or the final selected FAO90 class.",
+    description="Stores new FAO decision answers for the current user session and returns either the next question or the final selected WRB4 class.",
 )
-def post_fao_decision_answers(
+def post_wrb_decision_answers(
     data: FaoAnswersRequest,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(submit_fao_answers(data.user_id, data.answers, repos), units=fao_decision_units())
+    return success(submit_wrb_answers(data.user_id, data.answers, repos), units=wrb_decision_units())
 
 
-@router.post("/soil/fao-decision", include_in_schema=False, response_model=ApiResponse)
-def legacy_fao_decision(
+@router.post("/soil/wrb-decision", include_in_schema=False, response_model=ApiResponse)
+def legacy_wrb_decision(
     data: FaoDecisionRequest,
     repos: Repositories = Depends(get_repositories),
 ):
-    return success(build_fao_decision(data.user_id, data.coord, data.answers, repos), units=fao_decision_units())
+    return success(build_wrb_decision(data.user_id, data.coord, data.answers, repos), units=wrb_decision_units())
 
 
 @router.get(

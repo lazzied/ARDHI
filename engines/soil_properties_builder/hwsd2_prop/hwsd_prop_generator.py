@@ -9,18 +9,18 @@ from engines.soil_properties_builder.output.output import Output
 logger = logging.getLogger(__name__)
 
 class HWSDPropGenerator:
-    def __init__(self, smu_id: int, fao_90_class: str, hwsd_repo: HwsdRepository, output_dir: str, filename: str):
+    def __init__(self, smu_id: int, wrb4_class: str, hwsd_repo: HwsdRepository, output_dir: str, filename: str):
         self.smu_id       = smu_id
-        self.fao_90_class = fao_90_class
+        self.wrb4_class = wrb4_class
         self.hwsd_repo    = hwsd_repo
         self.output_dir   = output_dir
         self.filename     = filename
         
     def get_soter_texture(self)-> Texture:
-        soter_texture_class_code = self.hwsd_repo.get_soter_texture_class(self.smu_id,self.fao_90_class)
+        soter_texture_class_code = self.hwsd_repo.get_soter_texture_class(self.smu_id,self.wrb4_class)
         soter_texture_class = self.hwsd_repo.get_code_value("TEXTURE_SOTER", soter_texture_class_code)
         if not soter_texture_class:
-            raise ValueError(f"No SOTER texture found for SMU {self.smu_id} / {self.fao_90_class}")
+            raise ValueError(f"No SOTER texture found for SMU {self.smu_id} / {self.wrb4_class}")
         return Texture(soter_texture_class.lower())
             
     def apply_transformations(self, raw: dict) -> dict:
@@ -57,22 +57,22 @@ class HWSDPropGenerator:
     
     def compute(self, layer: str): # this is when you try to get a specific atribute
         
-        raw_dict = self.hwsd_repo.get_single_layer_attributes(COLUMNS, self.fao_90_class, layer, self.smu_id)
+        raw_dict = self.hwsd_repo.get_single_layer_attributes(COLUMNS, self.wrb4_class, layer, self.smu_id)
         final_dict = self.apply_transformations(raw_dict)
         
         return AugmentedLayer(smu_id=self.smu_id, values=final_dict, layer=layer)
     
     def get_ph_level(self)-> pH_level:
-        ph_val = self.hwsd_repo.get_layer_attribute(self.smu_id,"PH_WATER" , self.fao_90_class )
+        ph_val = self.hwsd_repo.get_layer_attribute(self.smu_id,"PH_WATER" , self.wrb4_class )
         if ph_val is None:
-            raise ValueError(f"No pH value found for SMU {self.smu_id} / {self.fao_90_class}")
+            raise ValueError(f"No pH value found for SMU {self.smu_id} / {self.wrb4_class}")
         return pH_level.BASIC if float(ph_val) > 7 else pH_level.ACIDIC
     
     def get_texture_class(self)-> Texture:
-        texture_code = self.hwsd_repo.get_layer_attribute(self.smu_id,"TEXTURE_SOTER" , self.fao_90_class )
+        texture_code = self.hwsd_repo.get_layer_attribute(self.smu_id,"TEXTURE_SOTER" , self.wrb4_class )
         texture_val = self.hwsd_repo.get_code_value("TEXTURE_SOTER",texture_code)
         if not texture_val:
-            raise ValueError(f"No texture value found for SMU {self.smu_id} / {self.fao_90_class}")
+            raise ValueError(f"No texture value found for SMU {self.smu_id} / {self.wrb4_class}")
         return Texture(texture_val.lower())
         
     def build_augmented_layers(self) -> AugmentedLayersGroup:
@@ -94,7 +94,7 @@ class HWSDPropGenerator:
     def layers_orchestrator(self) -> str:
         
         group = self.build_augmented_layers()
-        logger.debug("Built HWSD augmented layers for smu_id=%s fao_90=%s", self.smu_id, self.fao_90_class)
+        logger.debug("Built HWSD augmented layers for smu_id=%s wrb4=%s", self.smu_id, self.wrb4_class)
         return Output().to_xlsx(group, self.output_dir, self.filename)
 
 def augmented_layers_group_to_dict(group: AugmentedLayersGroup) -> dict:
@@ -115,9 +115,9 @@ if __name__ == "__main__":
     conn = get_hwsd_connection()
     try:
         hwsd_repo = HwsdRepository(conn)
-        fao_90_class = hwsd_repo.get_fao_90(smu_id)
+        wrb4_class = hwsd_repo.get_wrb4(smu_id)
 
-        generator = HWSDPropGenerator(smu_id, fao_90_class, hwsd_repo, output_dir, filename)
+        generator = HWSDPropGenerator(smu_id, wrb4_class, hwsd_repo, output_dir, filename)
         generator.layers_orchestrator()
     finally:
         close_connection(conn)

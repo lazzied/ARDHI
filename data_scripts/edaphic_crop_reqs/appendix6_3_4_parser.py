@@ -7,9 +7,9 @@ from typing import Dict, Iterator, List
 
 import pandas as pd
 
-from engines.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
-from engines.edaphic_crop_reqs.models import (AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock,)
-from engines.edaphic_crop_reqs.utils_functions import (
+from data_scripts.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
+from data_scripts.edaphic_crop_reqs.models import (AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock,)
+from data_scripts.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
     generate_sq_df,
     normalize_categorical_label,
@@ -179,10 +179,10 @@ def run_pipeline(
 if __name__ == "__main__":
     results = run_pipeline(
         crops        = CROPS_RAINFED_SPRINKLER,
-        csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv",
+        csv_path     = "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv",
         input_level  = InputLevel.HIGH,
         crop_id      = 4,
-        output_dir   = "engines/edaphic_crop_reqs/results",
+        output_dir   = "data_scripts/edaphic_crop_reqs/results",
         write_output = True,
     )
 """Parser for one appendix source used to build edaphic crop requirement tables."""

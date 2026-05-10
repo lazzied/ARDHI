@@ -6,7 +6,7 @@ from ardhi.db.hwsd import HwsdRepository
 from engines.OCR_processing.models import AugmentedLayer, AugmentedLayersGroup, InputLevel, WaterSupply, pH_level
 from engines.global_engines.suitability_service.models import CropSuitabilityScore, RankingSuitability
 from engines.global_engines.yield_service.models import CropYieldScore, RankingYield
-from engines.soil_FAO_decision import classify_soil_dynamic, get_next_question, get_relevant_questions
+from engines.soil_WRB_decision import classify_soil_dynamic, get_next_question, get_relevant_questions
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import augmented_layers_group_to_dict
 from engines.soil_properties_builder.report_augmentation.processing import ReportOperations
 import sqlite3
@@ -36,7 +36,7 @@ class SoilPropertyContractTests(unittest.TestCase):
         self.assertEqual(ReportOperations(acidic_report).get_report_ph_class(), pH_level.ACIDIC)
         self.assertEqual(ReportOperations(basic_report).get_report_ph_class(), pH_level.BASIC)
 
-    def test_fao_decision_exposes_next_dynamic_question(self):
+    def test_wrb_decision_exposes_next_dynamic_question(self):
         smu_input = {
             "Calcic Vertisols": 0.40,
             "Calcaric Cambisols": 0.30,
@@ -48,7 +48,7 @@ class SoilPropertyContractTests(unittest.TestCase):
         self.assertIsNotNone(next_question)
         self.assertEqual(next_question["id"], "water_context")
 
-    def test_fao_decision_completes_from_partial_answers(self):
+    def test_wrb_decision_completes_from_partial_answers(self):
         smu_input = {
             "Calcic Vertisols": 0.40,
             "Calcaric Cambisols": 0.30,
@@ -66,7 +66,7 @@ class SoilPropertyContractTests(unittest.TestCase):
         self.assertEqual(result["status"], "complete")
         self.assertEqual(result["selected_soil"], "Calcic Vertisols")
 
-    def test_fao_question_list_filters_to_relevant_questions(self):
+    def test_wrb_question_list_filters_to_relevant_questions(self):
         smu_input = {
             "Calcic Vertisols": 0.40,
             "Calcaric Cambisols": 0.30,
@@ -82,7 +82,7 @@ class SoilPropertyContractTests(unittest.TestCase):
             "developed_soil_character",
         ])
 
-    def test_fao_question_list_handles_short_fao_codes(self):
+    def test_wrb_question_list_handles_short_wrb_codes(self):
         smu_input = {
             "GLe": 0.55,
             "VRk": 0.25,
@@ -96,22 +96,22 @@ class SoilPropertyContractTests(unittest.TestCase):
             "profile_development",
         ])
 
-    def test_hwsd_repo_returns_fao_candidates_sorted_by_share(self):
+    def test_hwsd_repo_returns_wrb_candidates_sorted_by_share(self):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
-        conn.execute("CREATE TABLE HWSD2_LAYERS (HWSD2_SMU_ID INTEGER, FAO90 TEXT, SHARE REAL)")
+        conn.execute("CREATE TABLE HWSD2_LAYERS (HWSD2_SMU_ID INTEGER, WRB4 TEXT, SHARE REAL)")
         conn.execute("INSERT INTO HWSD2_LAYERS VALUES (1, 'Class B', 40)")
         conn.execute("INSERT INTO HWSD2_LAYERS VALUES (1, 'Class A', 60)")
         conn.execute("INSERT INTO HWSD2_LAYERS VALUES (1, 'Class A', 60)")
         repo = HwsdRepository(conn)
 
-        candidates = repo.get_fao_90_candidates(1)
+        candidates = repo.get_wrb4_candidates(1)
 
         self.assertEqual(
             candidates,
             [
-                {"fao_90": "Class A", "share": 60.0},
-                {"fao_90": "Class B", "share": 40.0},
+                {"wrb4": "Class A", "share": 60.0},
+                {"wrb4": "Class B", "share": 40.0},
             ],
         )
         conn.close()

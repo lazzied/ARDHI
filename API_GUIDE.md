@@ -269,13 +269,13 @@ These routes start and populate the user workflow state.
 
 ##### 3. FAO soil decision
 
-- `POST /soil/fao-decision`
+- `POST /soil/wrb-decision`
 
 This is the dynamic decision flow that uses:
 
 - `coord`
 - resolved `smu_id`
-- FAO90 candidates
+- WRB4 candidates
 - user answers
 
 It either returns the next question or the final FAO class.
@@ -338,7 +338,7 @@ It includes:
 - `needs_report`
 - `lab_report_exists`
 - optional `smu_id`
-- optional `fao_90_class`
+- optional `wrb4_class`
 
 Two important ideas here:
 
@@ -465,7 +465,7 @@ These functions define `units` blocks and selection metadata.
 Examples:
 
 - `selection_catalog_units()`
-- `fao_decision_units()`
+- `wrb_decision_units()`
 - `crop_recommendation_units()`
 - `soil_property_units()`
 
@@ -549,11 +549,11 @@ This is a common pattern because many routes depend on prior workflow steps havi
 
 Uses raster logic to turn coordinates into an SMU identifier.
 
-##### `get_fao_candidates_for_coord(coord, repos)`
+##### `get_wrb_candidates_for_coord(coord, repos)`
 
-Uses the `smu_id` to query HWSD and fetch all candidate FAO90 classes.
+Uses the `smu_id` to query HWSD and fetch all candidate WRB4 classes.
 
-##### `_top_fao_class(candidates)`
+##### `_top_wrb_class(candidates)`
 
 Gets the highest-priority FAO class when a single default is needed.
 
@@ -564,7 +564,7 @@ This is one of the most important workflow helpers.
 It enriches `UserInput` by:
 
 - resolving `smu_id`
-- resolving a default `fao_90_class` if needed
+- resolving a default `wrb4_class` if needed
 
 So the backend can carry smarter context than the raw frontend sent.
 
@@ -574,7 +574,7 @@ So the backend can carry smarter context than the raw frontend sent.
 
 Takes `UserInput`, enriches it, and stores it in session.
 
-##### `_store_fao_decision_state(...)`
+##### `_store_wrb_decision_state(...)`
 
 Stores:
 
@@ -652,7 +652,7 @@ Uses report data plus HWSD.
 
 If no inline report is passed, it falls back to the report path saved in the session.
 
-##### `build_fao_decision(...)`
+##### `build_wrb_decision(...)`
 
 This is the dynamic FAO workflow service.
 
@@ -662,7 +662,7 @@ It:
 2. fetches FAO candidates
 3. handles the “only one candidate” shortcut
 4. runs dynamic question logic when more than one candidate exists
-5. persists final `fao_90_class` when complete
+5. persists final `wrb4_class` when complete
 
 This function is one of the best examples of service-layer orchestration in the project.
 
@@ -686,15 +686,15 @@ Frontend sends:
 
 Route:
 
-- `POST /soil/fao-decision`
+- `POST /soil/wrb-decision`
 
 Service:
 
-- `build_fao_decision(...)`
+- `build_wrb_decision(...)`
 
 Repository:
 
-- `repos.hwsd.get_fao_90_candidates(...)`
+- `repos.hwsd.get_wrb4_candidates(...)`
 
 Utility:
 
@@ -706,7 +706,7 @@ Engine:
 
 Session:
 
-- save `fao_90_class`
+- save `wrb4_class`
 
 Response:
 
@@ -817,7 +817,7 @@ Check:
 
 - was `/submit-input` called?
 - was `/onboarding` called?
-- did `/soil/fao-decision` persist the final class?
+- did `/soil/wrb-decision` persist the final class?
 - was `/lab-report` called and saved?
 
 Most multi-step problems in this backend are session-sequencing problems.
@@ -850,7 +850,7 @@ Here is the human summary of the current API.
 
 ### FAO workflow
 
-- `POST /soil/fao-decision`
+- `POST /soil/wrb-decision`
   - advance or complete the dynamic FAO question flow
 
 ### Crop and soil outputs

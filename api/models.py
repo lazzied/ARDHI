@@ -130,7 +130,7 @@ class UserInput(BaseModel):
         description="Optional soil texture class selection stored in session for crop-needs and related flows.",
     )
     smu_id: Optional[int] = Field(default=None, description="Resolved automatically from coord; not required from frontend.")
-    fao_90_class: Optional[str] = Field(
+    wrb4_class: Optional[str] = Field(
         default=None,
         description="Resolved automatically from the FAO decision flow; not required from frontend.",
     )

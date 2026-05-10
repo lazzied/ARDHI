@@ -6,13 +6,13 @@ from typing import Dict, Iterator, List
 
 import pandas as pd
 
-from engines.edaphic_crop_reqs.constants import (
+from data_scripts.edaphic_crop_reqs.constants import (
     DRAINAGE_ABBREV_MAP, CROPS_RAINFED_SPRINKLER,
 )
-from engines.edaphic_crop_reqs.models import (
+from data_scripts.edaphic_crop_reqs.models import (
     AttributePair, InputLevel, RatingCurve, SoilCharacteristicsBlock,
 )
-from engines.edaphic_crop_reqs.utils_functions import (
+from data_scripts.edaphic_crop_reqs.utils_functions import (
     attribute_pairs_to_df,
     generate_sq_df,
     normalize_categorical_label,
@@ -201,12 +201,12 @@ def run_pipeline(
 
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path             = "engines/edaphic_crop_reqs/appendixes/appendix6_3_3.csv",
+        csv_path             = "data_scripts/edaphic_crop_reqs/appendixes/appendix6_3_3.csv",
         crop_id              = 4,
         input_level          = InputLevel.INTERMEDIATE,
         texture_class_report = "fine",
         crops                = CROPS_RAINFED_SPRINKLER,
-        output_dir           = "engines/edaphic_crop_reqs/results",
+        output_dir           = "data_scripts/edaphic_crop_reqs/results",
         write_output         = True,
     )
 """Parser for one appendix source used to build edaphic crop requirement tables."""

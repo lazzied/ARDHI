@@ -48,7 +48,7 @@ Use `GET /metadata/selections` first. It returns:
 - `user_input.irrigation_type`
 - `crop_needs.ph_level`
 - `crop_needs.texture_class`
-- `fao_decision_questions`
+- `wrb_decision_questions`
 
 These values are backend-owned and should be used directly for frontend dropdowns and question answer choices.
 
@@ -59,17 +59,17 @@ These values are backend-owned and should be used directly for frontend dropdown
 3. If needed, call `POST /lab-report`.
 4. Call `POST /submit-input` with base user input.
    - set `needs_report = true` when the user selected the report-based workflow
-5. Call `POST /soil/fao-decision` with:
+5. Call `POST /soil/wrb-decision` with:
    - `user_id`
    - `coord`
    - current `answers`
 
-`/soil/fao-decision` behaves in two modes:
+`/soil/wrb-decision` behaves in two modes:
 
 - returns `status = "question"` with the next relevant question and valid options
-- returns `status = "complete"` with `selected_fao_90`
+- returns `status = "complete"` with `selected_wrb4`
 
-When the decision completes, the backend stores the resolved `fao_90_class` in the user session so downstream models can use it automatically.
+When the decision completes, the backend stores the resolved `wrb4_class` in the user session so downstream models can use it automatically.
 
 ### External Report Service
 
@@ -125,7 +125,7 @@ That call will:
 - `coord` is user-provided.
 - `user_id` is frontend-generated.
 - `smu_id` is resolved by the backend from `coord`.
-- `fao_90_class` is resolved by the backend from the FAO decision flow and should not be manually set by the frontend in normal usage.
+- `wrb4_class` is resolved by the backend from the FAO decision flow and should not be manually set by the frontend in normal usage.
 
 ### Economics API
 

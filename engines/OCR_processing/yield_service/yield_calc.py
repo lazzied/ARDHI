@@ -249,20 +249,20 @@ class YieldCalcOrchestrator:
             raise ValueError(f"{scenario.crop_name} skipped — known missing SPH_val in edaphic table")
         # --- END DEBUG SKIP ---
 
-        # Step 1: get smu_id and fao_90 first
+        # Step 1: get smu_id and wrb4 first
         smu_id = get_smu_id_value(coord)
         # --- DEBUG ---
         _debug_logger.debug("  smu_id=%s", smu_id)
         # --- END DEBUG ---
 
-        fao_90 = hwsd_repo.get_fao_90(smu_id)
+        wrb4 = hwsd_repo.get_wrb4(smu_id)
         # --- DEBUG ---
-        _debug_logger.debug("  fao_90=%s", fao_90)
+        _debug_logger.debug("  wrb4=%s", wrb4)
         # --- END DEBUG ---
 
-        # Step 2: init hwsd_gen (needs smu_id and fao_90)
+        # Step 2: init hwsd_gen (needs smu_id and wrb4)
         self.hwsd_gen = HWSDPropGenerator(
-            smu_id, fao_90, self.hwsd_repo,
+            smu_id, wrb4, self.hwsd_repo,
             self.paths["hwsd_out"], "hwsd_soil"
         )
 
@@ -279,7 +279,7 @@ class YieldCalcOrchestrator:
             texture_class=texture_class,
             smu_id=smu_id
         )
-        self.fao_90_class = fao_90
+        self.wrb4_class = wrb4
 
     def run_yield_pipeline(
         self,
@@ -370,7 +370,7 @@ class YieldCalcOrchestrator:
         report_ops = ReportOperations(self.paths["report_input"])
         report_gen = ReportPropGenerator(
             smu_id=self.site.smu_id,
-            fao_90_class=self.fao_90_class,
+            wrb4_class=self.wrb4_class,
             report_ops=report_ops,
             hwsd_repo=self.hwsd_repo,
             hwsd_prop_generator=self.hwsd_gen,

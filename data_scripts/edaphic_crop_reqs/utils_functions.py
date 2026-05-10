@@ -4,7 +4,7 @@ from typing import Dict, List
 
 import pandas as pd
 
-from engines.edaphic_crop_reqs.models import AttributePair, InputLevel
+from data_scripts.edaphic_crop_reqs.models import AttributePair, InputLevel
 
 
 # --------------------------------------------------------------------------

@@ -75,7 +75,7 @@ The current runtime flow is:
 
 1. coord
 2. resolve `smu_id`
-3. fetch FAO90 candidates from HWSD
+3. fetch WRB4 candidates from HWSD
 4. ask only the relevant question(s)
 5. persist the chosen FAO class back into session
 

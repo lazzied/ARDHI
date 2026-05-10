@@ -23,7 +23,7 @@ import pandas as pd
 from data_scripts.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER
 from data_scripts.edaphic_crop_reqs.models import AttributePair, RatingCurve, SoilCharacteristicsBlock
 from data_scripts.edaphic_crop_reqs.utils_functions import attribute_pairs_to_df, generate_sq_df, normalize_categorical_label, parse_input_levels, parse_sq_labels, validate_and_get_row_idx, write_sq_df_to_csv
-from engines.OCR_processing.models import InputLevel
+from data_scripts.edaphic_crop_reqs.models import InputLevel
 
 
 
@@ -163,11 +163,11 @@ def run_pipeline(
 
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv",
+        csv_path     = "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv",
         crop_id      = 4,
         crops        = CROPS_RAINFED_SPRINKLER,
         input_level  = InputLevel.INTERMEDIATE,
-        output_dir   = "engines/edaphic_crop_reqs/results",
+        output_dir   = "data_scripts/edaphic_crop_reqs/results",
         write_output = True,
     )
 """Parser for one appendix source used to build edaphic crop requirement tables."""

@@ -9,7 +9,7 @@ import pandas as pd
 from data_scripts.edaphic_crop_reqs.constants import ATTR_ABBREV_MAP, CROPS_RAINFED_SPRINKLER
 from data_scripts.edaphic_crop_reqs.models import AttributePair, RatingCurve, SoilCharacteristicsBlock
 from data_scripts.edaphic_crop_reqs.utils_functions import attribute_pairs_to_df, generate_sq_df, parse_input_levels, parse_sq_labels, validate_and_get_row_idx, write_sq_df_to_csv
-from engines.OCR_processing.models import InputLevel
+from data_scripts.edaphic_crop_reqs.models import InputLevel
 
 
 
@@ -259,22 +259,91 @@ def resolve_ph_blocks(
 # ---------------------------------------------------------------------------
 # AttributePair builder + pipeline
 # ---------------------------------------------------------------------------
+class BlockCleaner:
 
-def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> AttributePair:
-    if block.attribute_name in ["SPR", "VSP", "OSD"]:
+
+    def clean(self, block: SoilCharacteristicsBlock) -> SoilCharacteristicsBlock:
+        match block.attribute_name:
+            case "OC":
+                return self._process_matrix(block, penalties_to_remove=[30, 10])
+            case "TEB":
+                return self._process_matrix(block, penalties_to_remove=[10])
+            case "CECclay" | "CECsoil":
+                return self._process_matrix(block, penalties_to_remove=[50, 30, 10])
+            case "BS":
+                return self._process_matrix(block, penalties_to_remove=[10])
+            case "SPR" | "VSP" | "OSD":
+                return self._process_spr_vsp_osd(block)
+
+    # ------------------------------------------------------------------
+    # Case handlers
+    # ------------------------------------------------------------------
+
+    def _process_matrix(self, block: SoilCharacteristicsBlock, penalties_to_remove: list) -> SoilCharacteristicsBlock:
+        thresholds = block.thresholds_row
+        penalties  = block.penalties
+
+        zero_threshold_cols = [
+            (thresh, pen)
+            for thresh, pen in zip(thresholds, penalties)
+            if thresh == 0 or thresh == _SENTINEL
+]
+        print(f"[DEBUG] _process_matrix [{block.attribute_name}] zero_threshold_cols: {zero_threshold_cols}")
+        print(f"[DEBUG] _process_matrix [{block.attribute_name}] penalties_to_remove:  {penalties_to_remove}")
+
+        candidates = [
+            col for col in zero_threshold_cols
+            if col[1] not in penalties_to_remove
+        ]
+        print(f"[DEBUG] _process_matrix [{block.attribute_name}] candidates: {candidates}")
+
+        if len(candidates) == 2:
+            candidates = [max(candidates, key=lambda col: col[1])]
+
+        cols_to_remove = set(zero_threshold_cols) - set(candidates)
+        print(f"[DEBUG] _process_matrix [{block.attribute_name}] cols_to_remove: {cols_to_remove}")
+
+        block.thresholds_row, block.penalties = zip(*[
+            (thresh, pen)
+            for thresh, pen in zip(thresholds, penalties)
+            if (thresh, pen) not in cols_to_remove
+        ])
+
+        block.thresholds_row = list(block.thresholds_row)
+        block.penalties      = list(block.penalties)
+
+        return block
+
+    def _process_spr_vsp_osd(self, block: SoilCharacteristicsBlock) -> SoilCharacteristicsBlock:
         thresh_100 = block.thresholds_row[0]
-        pair_100 = (100, 0 if thresh_100 == _SENTINEL else thresh_100)
+        pair_100   = (100, 0 if thresh_100 == _SENTINEL else thresh_100)
 
-        # Find the penalty where threshold == 1
-        pair_1 = next((pen, 1) for pen, thresh in zip(block.penalties, block.thresholds_row) if thresh == 1)
+        # Find the (penalty, threshold) pair where threshold == 1
+        pair_1 = next(
+            (pen, thresh)
+            for pen, thresh in zip(block.penalties, block.thresholds_row)
+            if thresh == 1
+        )
 
-        penalties   = [pair_100[0], pair_1[0]]
-        thresholds  = [pair_100[1], pair_1[1]]
-                        
+        block.penalties      = [pair_100[0], pair_1[0]]
+        block.thresholds_row = [pair_100[1], pair_1[1]]
+
+        return block
+    
+def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> AttributePair:
+
+    print(f"[DEBUG] build_attribute_pair: attr={block.attribute_name}, penalties={block.penalties}, thresholds={block.thresholds_row}")
+    
+    cleaner = BlockCleaner()
+    cleaner.clean(block)
+    
+    print(f"[DEBUG] after clean:           penalties={block.penalties}, thresholds={block.thresholds_row}")
+
+    if block.attribute_name in ["SPR", "VSP", "OSD"]:
         curve = RatingCurve(
             crop_id    = crop_id,
-            penalties  = penalties,
-            thresholds = thresholds,
+            penalties  = block.penalties,
+            thresholds = block.thresholds_row,
         )
     else:
         curve = RatingCurve(
@@ -282,9 +351,12 @@ def build_attribute_pair(block: SoilCharacteristicsBlock, crop_id: int) -> Attri
             penalties  = block.penalties,
             thresholds = [0 if t == _SENTINEL else t for t in block.thresholds_row]
         )
-    
+
     return AttributePair(attribute_name=block.attribute_name, rating_curve=curve)
 
+
+        
+         
 
 def run_pipeline(
     csv_path:     str,
@@ -303,14 +375,24 @@ def run_pipeline(
         )
 
     all_blocks      = extract_blocks(df, crop_id, crops)
+    print(f"[DEBUG] all_blocks count: {len(all_blocks)}")
+    print(f"[DEBUG] input_level: {input_level!r} (type: {type(input_level)})")
+    for b in all_blocks[:3]:
+        print(f"[DEBUG]   block: attr={b.attribute_name}, input_levels={b.input_levels}, sqs={b.soil_qualities}")
+
     filtered_blocks = list(filter_blocks_by_input_level(all_blocks, input_level))
+    print(f"[DEBUG] filtered_blocks after input_level filter: {len(filtered_blocks)}")
+
     filtered_blocks = resolve_ph_blocks(filtered_blocks, ph_report)
+    print(f"[DEBUG] filtered_blocks after resolve_ph: {len(filtered_blocks)}")
 
     sq_groups: Dict[str, List[AttributePair]] = defaultdict(list)
     for block in filtered_blocks:
         pair = build_attribute_pair(block, crop_id)
         for sq in block.soil_qualities:
             sq_groups[sq].append(pair)
+
+    print(f"[DEBUG] sq_groups keys: {list(sq_groups.keys())}")
 
     result: Dict[str, pd.DataFrame] = {}
     for sq_label, pairs in sorted(sq_groups.items()):
@@ -322,15 +404,14 @@ def run_pipeline(
 
     return result
 
-
 if __name__ == "__main__":
     results = run_pipeline(
-        csv_path     = "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv",
+        csv_path     = "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv",
         crop_id      = 4,
         crops        = CROPS_RAINFED_SPRINKLER,
         input_level  = InputLevel.INTERMEDIATE,
         ph_report    = 6.0,
-        output_dir   = "engines/edaphic_crop_reqs/results",
+        output_dir   = "data_scripts/edaphic_crop_reqs/results",
         write_output = True,
     )
     print("\n--- SQ1 preview ---")

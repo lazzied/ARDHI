@@ -22,7 +22,7 @@ class ApiWorkflowTests(unittest.TestCase):
 
     def _build_client(self, candidates):
         fake_repos = SimpleNamespace(
-            hwsd=SimpleNamespace(get_fao_90_candidates=lambda smu_id: candidates),
+            hwsd=SimpleNamespace(get_wrb4_candidates=lambda smu_id: candidates),
             ardhi=SimpleNamespace(),
             ecocrop=SimpleNamespace(),
         )
@@ -43,7 +43,7 @@ class ApiWorkflowTests(unittest.TestCase):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
                 with patch("api.services.CropCalendar") as mock_calendar:
                     mock_calendar.return_value.crop_calendar_class_factory.return_value = [fake_calendar_item]
-                    with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                    with self._build_client([{"wrb4": "Calcic Vertisols", "share": 100.0}]) as client:
                         client.post(
                             "/submit-input",
                             json={
@@ -73,13 +73,13 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("access-control-allow-origin"), "*")
 
-    def test_submit_input_resolves_smu_and_fao_context(self):
+    def test_submit_input_resolves_smu_and_wrb_context(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
                 with self._build_client(
                     [
-                        {"fao_90": "Calcic Vertisols", "share": 60.0},
-                        {"fao_90": "Calcaric Cambisols", "share": 40.0},
+                        {"wrb4": "Calcic Vertisols", "share": 60.0},
+                        {"wrb4": "Calcaric Cambisols", "share": 40.0},
                     ]
                 ) as client:
                     response = client.post(
@@ -95,14 +95,14 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         session = user_sessions.get("u1")
         self.assertEqual(session["smu_id"], 31802)
-        self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
+        self.assertEqual(session["wrb4_class"], "Calcic Vertisols")
         self.assertEqual(session["ph_level"], "acidic")
         self.assertEqual(session["texture_class"], "fine")
 
     def test_submit_input_preserves_existing_user_context_fields(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
-                with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                with self._build_client([{"wrb4": "Calcic Vertisols", "share": 100.0}]) as client:
                     client.post(
                         "/onboarding",
                         json={"user_id": "u-onboard", "lab_report_exists": True},
@@ -123,7 +123,7 @@ class ApiWorkflowTests(unittest.TestCase):
     def test_submit_input_clears_irrigation_type_for_rainfed_requests(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
-                with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                with self._build_client([{"wrb4": "Calcic Vertisols", "share": 100.0}]) as client:
                     response = client.post(
                         "/submit-input",
                         json={
@@ -141,7 +141,7 @@ class ApiWorkflowTests(unittest.TestCase):
     def test_submit_input_preserves_irrigated_sprinkler_in_session(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
-                with self._build_client([{"fao_90": "Calcic Vertisols", "share": 100.0}]) as client:
+                with self._build_client([{"wrb4": "Calcic Vertisols", "share": 100.0}]) as client:
                     response = client.post(
                         "/submit-input",
                         json={
@@ -167,7 +167,7 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertIn("user_input", payload)
         self.assertEqual(payload["user_input"]["input_level"][0]["value"], "low")
         self.assertNotIn("crop_needs", payload)
-        self.assertNotIn("fao_decision_questions", payload)
+        self.assertNotIn("wrb_decision_questions", payload)
 
     def test_economic_suitability_endpoint_returns_revenue_metrics(self):
         with self._build_client([]) as client:
@@ -261,15 +261,15 @@ class ApiWorkflowTests(unittest.TestCase):
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
-    def test_fao_get_questions_returns_next_question_for_multiple_candidates(self):
+    def test_wrb_get_questions_returns_next_question_for_multiple_candidates(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
                 with self._build_client(
                     [
-                        {"fao_90": "Calcic Vertisols", "share": 40.0},
-                        {"fao_90": "Calcaric Cambisols", "share": 30.0},
-                        {"fao_90": "Calcic Luvisols", "share": 20.0},
-                        {"fao_90": "Calcaric Fluvisols", "share": 10.0},
+                        {"wrb4": "Calcic Vertisols", "share": 40.0},
+                        {"wrb4": "Calcaric Cambisols", "share": 30.0},
+                        {"wrb4": "Calcic Luvisols", "share": 20.0},
+                        {"wrb4": "Calcaric Fluvisols", "share": 10.0},
                     ]
                 ) as client:
                     client.post(
@@ -281,7 +281,7 @@ class ApiWorkflowTests(unittest.TestCase):
                             "water_supply": "rainfed",
                         },
                     )
-                    response = client.get("/fao-decision/get-questions/u2")
+                    response = client.get("/wrb-decision/get-questions/u2")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
@@ -290,14 +290,14 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["questions"]), 1)
         session = user_sessions.get("u2")
         self.assertEqual(session["smu_id"], 31802)
-        self.assertEqual(len(session["fao_90_candidates"]), 4)
+        self.assertEqual(len(session["wrb4_candidates"]), 4)
 
-    def test_fao_get_questions_returns_candidates_and_no_questions_for_single_class(self):
+    def test_wrb_get_questions_returns_candidates_and_no_questions_for_single_class(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
                 with self._build_client(
                     [
-                        {"fao_90": "Calcic Vertisols", "share": 100.0},
+                        {"wrb4": "Calcic Vertisols", "share": 100.0},
                     ]
                 ) as client:
                     client.post(
@@ -309,24 +309,24 @@ class ApiWorkflowTests(unittest.TestCase):
                             "water_supply": "rainfed",
                         },
                     )
-                    response = client.get("/fao-decision/get-questions/u3")
+                    response = client.get("/wrb-decision/get-questions/u3")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
-        self.assertEqual(payload["candidates"][0]["fao_90"], "Calcic Vertisols")
+        self.assertEqual(payload["candidates"][0]["wrb4"], "Calcic Vertisols")
         self.assertEqual(payload["questions"], [])
         session = user_sessions.get("u3")
         self.assertEqual(session["smu_id"], 31802)
 
-    def test_fao_post_answers_persists_selected_class_after_answers(self):
+    def test_wrb_post_answers_persists_selected_class_after_answers(self):
         with patch("api.services.resolve_smu_id", return_value=31802):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
                 with self._build_client(
                     [
-                        {"fao_90": "Calcic Vertisols", "share": 40.0},
-                        {"fao_90": "Calcaric Cambisols", "share": 30.0},
-                        {"fao_90": "Calcic Luvisols", "share": 20.0},
-                        {"fao_90": "Calcaric Fluvisols", "share": 10.0},
+                        {"wrb4": "Calcic Vertisols", "share": 40.0},
+                        {"wrb4": "Calcaric Cambisols", "share": 30.0},
+                        {"wrb4": "Calcic Luvisols", "share": 20.0},
+                        {"wrb4": "Calcaric Fluvisols", "share": 10.0},
                     ]
                 ) as client:
                     client.post(
@@ -339,7 +339,7 @@ class ApiWorkflowTests(unittest.TestCase):
                         },
                     )
                     response = client.post(
-                        "/fao-decision/post-answers",
+                        "/wrb-decision/post-answers",
                         json={
                             "user_id": "u4",
                             "answers": {
@@ -354,20 +354,20 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
         self.assertEqual(payload["status"], "complete")
-        self.assertEqual(payload["selected_fao_90"], "Calcic Vertisols")
-        self.assertEqual(payload["selected_fao_class"], "Calcic Vertisols")
+        self.assertEqual(payload["selected_wrb4"], "Calcic Vertisols")
+        self.assertEqual(payload["selected_wrb_class"], "Calcic Vertisols")
         session = user_sessions.get("u4")
-        self.assertEqual(session["fao_90_class"], "Calcic Vertisols")
+        self.assertEqual(session["wrb4_class"], "Calcic Vertisols")
         self.assertEqual(session["answers"]["profile_development"], "Heavy clay that cracks open in summer")
 
-    def test_fao_post_answers_maps_question_number_keys_to_internal_ids(self):
+    def test_wrb_post_answers_maps_question_number_keys_to_internal_ids(self):
         with patch("api.services.resolve_smu_id", return_value=31835):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
                 with self._build_client(
                     [
-                        {"fao_90": "GLe", "share": 55.0},
-                        {"fao_90": "VRk", "share": 25.0},
-                        {"fao_90": "FLe", "share": 20.0},
+                        {"wrb4": "GLe", "share": 55.0},
+                        {"wrb4": "VRk", "share": 25.0},
+                        {"wrb4": "FLe", "share": 20.0},
                     ]
                 ) as client:
                     client.post(
@@ -379,9 +379,9 @@ class ApiWorkflowTests(unittest.TestCase):
                             "water_supply": "rainfed",
                         },
                     )
-                    questions_response = client.get("/fao-decision/get-questions/u5")
+                    questions_response = client.get("/wrb-decision/get-questions/u5")
                     response = client.post(
-                        "/fao-decision/post-answers",
+                        "/wrb-decision/post-answers",
                         json={
                             "user_id": "u5",
                             "answers": {
@@ -395,14 +395,14 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(user_sessions.get("u5")["answers"]["water_context"], "Gets flooded by a river or wadi")
 
-    def test_fao_post_answers_maps_question_text_keys_to_internal_ids(self):
+    def test_wrb_post_answers_maps_question_text_keys_to_internal_ids(self):
         with patch("api.services.resolve_smu_id", return_value=31835):
             with patch("api.services.derive_soil_selection", return_value={"ph_level": "acidic", "texture_class": "fine"}):
                 with self._build_client(
                     [
-                        {"fao_90": "GLe", "share": 55.0},
-                        {"fao_90": "VRk", "share": 25.0},
-                        {"fao_90": "FLe", "share": 20.0},
+                        {"wrb4": "GLe", "share": 55.0},
+                        {"wrb4": "VRk", "share": 25.0},
+                        {"wrb4": "FLe", "share": 20.0},
                     ]
                 ) as client:
                     client.post(
@@ -414,9 +414,9 @@ class ApiWorkflowTests(unittest.TestCase):
                             "water_supply": "rainfed",
                         },
                     )
-                    client.get("/fao-decision/get-questions/u6")
+                    client.get("/wrb-decision/get-questions/u6")
                     response = client.post(
-                        "/fao-decision/post-answers",
+                        "/wrb-decision/post-answers",
                         json={
                             "user_id": "u6",
                             "answers": {

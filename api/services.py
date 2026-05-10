@@ -29,7 +29,7 @@ from engines.global_engines.planting_harvesting import CropCalendar
 from engines.global_engines.sq import GlobalSq, ReportSq
 from engines.global_engines.suitability_service.suitability_engine import CropSuitability
 from engines.global_engines.yield_service.yield_engine import CropYield
-from engines.soil_FAO_decision import QUESTION_FLOW, classify_soil_dynamic, get_relevant_questions
+from engines.soil_WRB_decision import QUESTION_FLOW, classify_soil_dynamic, get_relevant_questions
 from engines.soil_properties_builder.hwsd2_prop.hwsd_prop_generator import (
     HWSDPropGenerator,
     augmented_layers_group_to_dict,
@@ -71,12 +71,12 @@ def selection_catalog_units() -> dict:
     }
 
 
-def fao_decision_units() -> dict:
+def wrb_decision_units() -> dict:
     return {
         "smu_id": "identifier",
-        "selected_fao_90": "categorical",
+        "selected_wrb4": "categorical",
         "candidates": {
-            "fao_90": "categorical",
+            "wrb4": "categorical",
             "share": "% of SMU composition",
         },
         "question": {
@@ -331,36 +331,36 @@ def resolve_smu_id(coord: tuple[float, float]) -> int:
     return smu_id
 
 
-def get_fao_candidates_for_coord(coord: tuple[float, float], repos: Repositories) -> dict:
+def get_wrb_candidates_for_coord(coord: tuple[float, float], repos: Repositories) -> dict:
     smu_id = resolve_smu_id(coord)
-    candidates = repos.hwsd.get_fao_90_candidates(smu_id)
+    candidates = repos.hwsd.get_wrb4_candidates(smu_id)
     if not candidates:
-        raise ValueError(f"No FAO90 classes found for SMU {smu_id}")
+        raise ValueError(f"No WRB4 classes found for SMU {smu_id}")
     return {
         "smu_id": smu_id,
         "candidates": candidates,
     }
 
 
-def _top_fao_class(candidates: list[dict]) -> str:
+def _top_wrb_class(candidates: list[dict]) -> str:
     if not candidates:
-        raise ValueError("No FAO90 candidates available")
-    return candidates[0]["fao_90"]
+        raise ValueError("No WRB4 candidates available")
+    return candidates[0]["wrb4"]
 
 
 def resolve_user_input_context(data: UserInput, repos: Repositories) -> UserInput:
     smu_id = data.smu_id or resolve_smu_id(data.coord)
-    fao_90_class = data.fao_90_class
-    if fao_90_class is None:
-        candidates = repos.hwsd.get_fao_90_candidates(smu_id)
-        fao_90_class = _top_fao_class(candidates)
-    return data.model_copy(update={"smu_id": smu_id, "fao_90_class": fao_90_class})
+    wrb4_class = data.wrb4_class
+    if wrb4_class is None:
+        candidates = repos.hwsd.get_wrb4_candidates(smu_id)
+        wrb4_class = _top_wrb_class(candidates)
+    return data.model_copy(update={"smu_id": smu_id, "wrb4_class": wrb4_class})
 
 
-def derive_soil_selection(smu_id: int, fao_90_class: str, repos: Repositories) -> dict[str, Any]:
+def derive_soil_selection(smu_id: int, wrb4_class: str, repos: Repositories) -> dict[str, Any]:
     generator = HWSDPropGenerator(
         smu_id,
-        fao_90_class,
+        wrb4_class,
         repos.hwsd,
         HWSD_SOIL_DIR,
         HWSD_SOIL_FILENAME,
@@ -387,7 +387,7 @@ def store_user_input(data: SubmitInputRequest | UserInput, repos: Repositories) 
         ph_level=session.get("ph_level"),
         texture_class=session.get("texture_class"),
         smu_id=session.get("smu_id"),
-        fao_90_class=session.get("fao_90_class"),
+        wrb4_class=session.get("wrb4_class"),
     )
     resolved = resolve_user_input_context(base_user_input, repos)
     session.update(
@@ -398,20 +398,20 @@ def store_user_input(data: SubmitInputRequest | UserInput, repos: Repositories) 
             "water_supply": resolved.water_supply,
             "irrigation_type": resolved.irrigation_type,
             "smu_id": resolved.smu_id,
-            "fao_90_class": resolved.fao_90_class,
+            "wrb4_class": resolved.wrb4_class,
         }
     )
-    session.update(derive_soil_selection(resolved.smu_id, resolved.fao_90_class, repos))
+    session.update(derive_soil_selection(resolved.smu_id, resolved.wrb4_class, repos))
     user_sessions[resolved.user_id] = session
 
 
-def _store_fao_decision_state(
+def _store_wrb_decision_state(
     user_id: str,
     coord: tuple[float, float],
     smu_id: int,
     candidates: list[dict],
     answers: dict[str, str],
-    selected_fao_90: str | None = None,
+    selected_wrb4: str | None = None,
     repos: Repositories | None = None,
 ) -> None:
     session = user_sessions.get(user_id, {})
@@ -419,31 +419,31 @@ def _store_fao_decision_state(
         {
             "coord": coord,
             "smu_id": smu_id,
-            "fao_90_candidates": candidates,
+            "wrb4_candidates": candidates,
             "answers": answers,
         }
     )
-    if selected_fao_90 is not None:
-        session["fao_90_class"] = selected_fao_90
+    if selected_wrb4 is not None:
+        session["wrb4_class"] = selected_wrb4
         if repos is not None:
-            session.update(derive_soil_selection(smu_id, selected_fao_90, repos))
+            session.update(derive_soil_selection(smu_id, selected_wrb4, repos))
     user_sessions[user_id] = session
 
 
 def _candidate_input_from_candidates(candidates: list[dict]) -> dict[str, float]:
-    return {item["fao_90"]: item["share"] / 100.0 for item in candidates}
+    return {item["wrb4"]: item["share"] / 100.0 for item in candidates}
 
 
-def _normalize_fao_answer_keys(user_id: str, answers: dict[str, str], repos: Repositories) -> dict[str, str]:
+def _normalize_wrb_answer_keys(user_id: str, answers: dict[str, str], repos: Repositories) -> dict[str, str]:
     if not answers:
         return {}
 
     session = get_session_or_404(user_id)
-    questions = session.get("fao_questions")
+    questions = session.get("wrb_questions")
     if not questions:
         data = get_user_input_from_session(user_id)
-        fao_context = get_fao_candidates_for_coord(data.coord, repos)
-        candidates = fao_context["candidates"]
+        wrb_context = get_wrb_candidates_for_coord(data.coord, repos)
+        candidates = wrb_context["candidates"]
         questions = get_relevant_questions(_candidate_input_from_candidates(candidates))
 
     mapped_answers: dict[str, str] = {}
@@ -616,7 +616,7 @@ def build_hwsd_soil_report(data: UserInput, repos: Repositories) -> dict:
     resolved = resolve_user_input_context(data, repos)
     generator = HWSDPropGenerator(
         resolved.smu_id,
-        resolved.fao_90_class,
+        resolved.wrb4_class,
         repos.hwsd,
         HWSD_SOIL_DIR,
         HWSD_SOIL_FILENAME,
@@ -642,14 +642,14 @@ def build_augmented_soil_report(data: UserInput, report, repos: Repositories) ->
     report_ops = ReportOperations(report_input)
     hwsd_generator = HWSDPropGenerator(
         resolved.smu_id,
-        resolved.fao_90_class,
+        resolved.wrb4_class,
         repos.hwsd,
         REPORT_SOIL_DIR,
         REPORT_SOIL_FILENAME,
     )
     report_generator = ReportPropGenerator(
         smu_id=resolved.smu_id,
-        fao_90_class=resolved.fao_90_class,
+        wrb4_class=resolved.wrb4_class,
         report_ops=report_ops,
         hwsd_repo=repos.hwsd,
         hwsd_prop_generator=hwsd_generator,
@@ -686,58 +686,58 @@ def prepare_external_report_contract(
     )
 
 
-def build_fao_decision(user_id: str, coord: tuple[float, float], answers: dict[str, str], repos: Repositories) -> dict:
-    fao_context = get_fao_candidates_for_coord(coord, repos)
-    smu_id = fao_context["smu_id"]
-    candidates = fao_context["candidates"]
+def build_wrb_decision(user_id: str, coord: tuple[float, float], answers: dict[str, str], repos: Repositories) -> dict:
+    wrb_context = get_wrb_candidates_for_coord(coord, repos)
+    smu_id = wrb_context["smu_id"]
+    candidates = wrb_context["candidates"]
 
     if len(candidates) == 1:
-        selected_fao_90 = candidates[0]["fao_90"]
-        _store_fao_decision_state(user_id, coord, smu_id, candidates, answers, selected_fao_90, repos)
+        selected_wrb4 = candidates[0]["wrb4"]
+        _store_wrb_decision_state(user_id, coord, smu_id, candidates, answers, selected_wrb4, repos)
         return {
             "status": "complete",
             "smu_id": smu_id,
-            "selected_fao_90": selected_fao_90,
-            "selected_fao_class": selected_fao_90,
+            "selected_wrb4": selected_wrb4,
+            "selected_wrb_class": selected_wrb4,
             "candidates": candidates,
             "decision": {
-                "reason": "Only one FAO90 class is present for this SMU.",
+                "reason": "Only one WRB4 class is present for this SMU.",
             },
         }
 
-    smu_input = {item["fao_90"]: item["share"] / 100.0 for item in candidates}
+    smu_input = {item["wrb4"]: item["share"] / 100.0 for item in candidates}
     result = classify_soil_dynamic(smu_input, answers)
     result["smu_id"] = smu_id
     result["candidates"] = candidates
 
     if result["status"] == "complete":
-        result["selected_fao_90"] = result.pop("selected_soil", None)
-        result["selected_fao_class"] = result["selected_fao_90"]
-        _store_fao_decision_state(
+        result["selected_wrb4"] = result.pop("selected_soil", None)
+        result["selected_wrb_class"] = result["selected_wrb4"]
+        _store_wrb_decision_state(
             user_id,
             coord,
             smu_id,
             candidates,
             answers,
-            result["selected_fao_90"],
+            result["selected_wrb4"],
             repos,
         )
     else:
-        _store_fao_decision_state(user_id, coord, smu_id, candidates, answers)
+        _store_wrb_decision_state(user_id, coord, smu_id, candidates, answers)
 
     return result
 
 
-def build_fao_questions(user_id: str, repos: Repositories) -> dict:
+def build_wrb_questions(user_id: str, repos: Repositories) -> dict:
     data = get_user_input_from_session(user_id)
-    fao_context = get_fao_candidates_for_coord(data.coord, repos)
-    smu_id = fao_context["smu_id"]
-    candidates = fao_context["candidates"]
-    smu_input = {item["fao_90"]: item["share"] / 100.0 for item in candidates}
+    wrb_context = get_wrb_candidates_for_coord(data.coord, repos)
+    smu_id = wrb_context["smu_id"]
+    candidates = wrb_context["candidates"]
+    smu_input = {item["wrb4"]: item["share"] / 100.0 for item in candidates}
     questions = get_relevant_questions(smu_input)
-    _store_fao_decision_state(user_id, data.coord, smu_id, candidates, {}, None)
+    _store_wrb_decision_state(user_id, data.coord, smu_id, candidates, {}, None)
     session = user_sessions.get(user_id, {})
-    session["fao_questions"] = questions
+    session["wrb_questions"] = questions
     user_sessions[user_id] = session
 
     return {
@@ -747,9 +747,9 @@ def build_fao_questions(user_id: str, repos: Repositories) -> dict:
     }
 
 
-def submit_fao_answers(user_id: str, answers: dict[str, str], repos: Repositories) -> dict:
+def submit_wrb_answers(user_id: str, answers: dict[str, str], repos: Repositories) -> dict:
     data = get_user_input_from_session(user_id)
     session = get_session_or_404(user_id)
     merged_answers = dict(session.get("answers", {}))
-    merged_answers.update(_normalize_fao_answer_keys(user_id, answers, repos))
-    return build_fao_decision(user_id, data.coord, merged_answers, repos)
+    merged_answers.update(_normalize_wrb_answer_keys(user_id, answers, repos))
+    return build_wrb_decision(user_id, data.coord, merged_answers, repos)

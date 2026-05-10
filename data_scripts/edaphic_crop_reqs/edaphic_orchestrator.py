@@ -12,16 +12,15 @@ Architecture is identical to the legacy orchestrator. The only changes:
 """
 from __future__ import annotations
 import os
-
 import pandas as pd
 from collections import defaultdict
 from typing import Dict, List
 
-from engines.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER 
-from engines.edaphic_crop_reqs.models import InputLevel
-from engines.edaphic_crop_reqs.utils_functions import write_sq_df_to_csv
+from data_scripts.edaphic_crop_reqs.constants import CROPS_RAINFED_SPRINKLER 
+from data_scripts.edaphic_crop_reqs.models import InputLevel
+from data_scripts.edaphic_crop_reqs.utils_functions import write_sq_df_to_csv
 
-from engines.edaphic_crop_reqs import (
+from data_scripts.edaphic_crop_reqs import (
     appendix6_3_1_parser as parser_1,
     appendix6_3_2_parser as parser_2,
     appendix6_3_3_parser as parser_3,
@@ -37,12 +36,12 @@ from engines.soil_properties_builder.output.output import Output
 #                                     equals this fixed registry level
 # ---------------------------------------------------------------------------
 PARSER_REGISTRY = [
-    (parser_1, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv", True),
-    (parser_2, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv", True),
-    (parser_3, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.3.csv", True),
-    (parser_4, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv", InputLevel.HIGH),
-    (parser_4, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.5.csv", InputLevel.INTERMEDIATE),
-    (parser_4, "engines/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.6.csv", InputLevel.LOW),
+    (parser_1, "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.1.csv", True),
+    (parser_2, "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.2.csv", True),
+    (parser_3, "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.3.csv", True),
+    (parser_4, "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.4.csv", InputLevel.HIGH),
+    (parser_4, "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.5.csv", InputLevel.INTERMEDIATE),
+    (parser_4, "data_scripts/edaphic_crop_reqs/appendixes/rainfed_sprinkler_appendix/csv_sheets/A6-3.6.csv", InputLevel.LOW),
 ]
 
 ALL_SQ_LABELS = [f"SQ{i}" for i in range(1, 8)]
@@ -284,13 +283,13 @@ if __name__ == "__main__":
         crop_id              = 4,
         ph_report            = 6.0,
         texture_class_report = "fine",
-        output_dir           = "engines/edaphic_crop_reqs/results",
+        output_dir           = "data_scripts/edaphic_crop_reqs/results",
         parser_registry      = PARSER_REGISTRY,
     )
     for level, sq_dict in results.items():
         Output.merge_csvs_to_xlsx(
-            f"engines/edaphic_crop_reqs/results/{level}",
-            f"engines/edaphic_crop_reqs/results/{level}/merged_output.xlsx",
+            f"data_scripts/edaphic_crop_reqs/results/{level}",
+            f"data_scripts/edaphic_crop_reqs/results/{level}/merged_output.xlsx",
         )
         for sq_label, df in sq_dict.items():
             print(f"\n--- {level}/{sq_label} preview ({len(df)} rows) ---")

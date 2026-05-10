@@ -11,7 +11,7 @@ This module now supports both:
 from dataclasses import dataclass
 from typing import Callable
 
-from engines.soil_FAO_constants import (
+from engines.soil_WRB_constants import (
     ALLUVIAL_SALTY,
     ANTHRO_CATS,
     ARID_CATS,
